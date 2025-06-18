@@ -96,6 +96,24 @@ class GDCGridProcessor:
         
         return temp_file.name
 
+def create_input_format_file(grid_2d, grid_type, filename):
+    """Create a text file in the same format as the input file with field names."""
+    temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', 
+                                          prefix=filename.replace('.txt', '_'))
+    
+    # Flatten the 2D grid in row-major order
+    flattened_grid = grid_2d.flatten()
+    
+    # Write each value with its corresponding field name
+    for idx, value in enumerate(flattened_grid):
+        # Round to integer as in the original format
+        int_value = int(round(value))
+        field_name = f"yuv_gdc_grid_{grid_type}_0_{idx}"
+        temp_file.write(f"{field_name} {int_value}\n")
+    
+    temp_file.close()
+    return temp_file.name
+
 def process_gdc_file(file, original_rows, original_cols, target_rows, target_cols, 
                     show_visualizations=True):
     """Main processing function for Gradio interface."""
@@ -142,21 +160,37 @@ def process_gdc_file(file, original_rows, original_cols, target_rows, target_col
         dx_interpolated = processor.interpolate_grid_bicubic(dx_grid_2d, target_rows, target_cols)
         dy_interpolated = processor.interpolate_grid_bicubic(dy_grid_2d, target_rows, target_cols)
         
-        # Create CSV files
-        csv_files = []
+        # Create files in different formats
+        all_files = []
         
-        # Original grids
+        # Original grids - CSV format
         original_dx_csv = create_csv_file(dx_grid_2d, f"original_dx_{original_rows}x{original_cols}.csv")
         original_dy_csv = create_csv_file(dy_grid_2d, f"original_dy_{original_rows}x{original_cols}.csv")
         
-        # Interpolated grids
+        # Interpolated grids - CSV format
         interp_dx_csv = create_csv_file(dx_interpolated, f"interpolated_dx_{target_rows}x{target_cols}.csv")
         interp_dy_csv = create_csv_file(dy_interpolated, f"interpolated_dy_{target_rows}x{target_cols}.csv")
         
-        csv_files = [original_dx_csv, original_dy_csv, interp_dx_csv, interp_dy_csv]
+        # Original grids - Input format
+        original_dx_txt = create_input_format_file(dx_grid_2d, "dx", f"original_dx_{original_rows}x{original_cols}_formatted.txt")
+        original_dy_txt = create_input_format_file(dy_grid_2d, "dy", f"original_dy_{original_rows}x{original_cols}_formatted.txt")
+        
+        # Interpolated grids - Input format (MAIN ADDITION)
+        interp_dx_txt = create_input_format_file(dx_interpolated, "dx", f"interpolated_dx_{target_rows}x{target_cols}_formatted.txt")
+        interp_dy_txt = create_input_format_file(dy_interpolated, "dy", f"interpolated_dy_{target_rows}x{target_cols}_formatted.txt")
+        
+        # Combined interpolated grid file in input format
+        combined_interp_txt = create_combined_input_format_file(dx_interpolated, dy_interpolated, 
+                                                              f"interpolated_combined_{target_rows}x{target_cols}_formatted.txt")
+        
+        all_files = [
+            original_dx_csv, original_dy_csv, interp_dx_csv, interp_dy_csv,
+            original_dx_txt, original_dy_txt, interp_dx_txt, interp_dy_txt,
+            combined_interp_txt
+        ]
         
         # Create zip file with all outputs
-        zip_file = create_zip_file(csv_files)
+        zip_file = create_zip_file(all_files)
         
         # Create visualizations if requested
         vis_orig_dx = vis_orig_dy = vis_interp_dx = vis_interp_dy = None
@@ -199,16 +233,46 @@ DY Grid Statistics (Interpolated):
 - Std: {np.std(dy_interpolated):.3f}
 
 Files generated:
+CSV Format:
 - Original DX CSV: original_dx_{original_rows}x{original_cols}.csv
 - Original DY CSV: original_dy_{original_rows}x{original_cols}.csv
 - Interpolated DX CSV: interpolated_dx_{target_rows}x{target_cols}.csv
 - Interpolated DY CSV: interpolated_dy_{target_rows}x{target_cols}.csv
+
+Input Format (with field names):
+- Original DX: original_dx_{original_rows}x{original_cols}_formatted.txt
+- Original DY: original_dy_{original_rows}x{original_cols}_formatted.txt
+- Interpolated DX: interpolated_dx_{target_rows}x{target_cols}_formatted.txt
+- Interpolated DY: interpolated_dy_{target_rows}x{target_cols}_formatted.txt
+- Combined Interpolated: interpolated_combined_{target_rows}x{target_cols}_formatted.txt
         """
         
         return summary, zip_file, vis_orig_dx, vis_orig_dy, vis_interp_dx, vis_interp_dy, create_grid_comparison_plot(dx_grid_2d, dx_interpolated, "DX Grid Comparison")
         
     except Exception as e:
         return f"Error processing file: {str(e)}", None, None, None, None, None, None
+
+def create_combined_input_format_file(dx_grid_2d, dy_grid_2d, filename):
+    """Create a single text file with both DX and DY grids in input format."""
+    temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', 
+                                          prefix=filename.replace('.txt', '_'))
+    
+    # Write DX values first
+    dx_flattened = dx_grid_2d.flatten()
+    for idx, value in enumerate(dx_flattened):
+        int_value = int(round(value))
+        field_name = f"yuv_gdc_grid_dx_0_{idx}"
+        temp_file.write(f"{field_name} {int_value}\n")
+    
+    # Write DY values
+    dy_flattened = dy_grid_2d.flatten()
+    for idx, value in enumerate(dy_flattened):
+        int_value = int(round(value))
+        field_name = f"yuv_gdc_grid_dy_0_{idx}"
+        temp_file.write(f"{field_name} {int_value}\n")
+    
+    temp_file.close()
+    return temp_file.name
 
 def create_csv_file(grid_2d, filename):
     """Create a CSV file from 2D grid data."""
@@ -223,15 +287,20 @@ def create_csv_file(grid_2d, filename):
     temp_file.close()
     return temp_file.name
 
-def create_zip_file(csv_files):
-    """Create a zip file containing all CSV files."""
+def create_zip_file(all_files):
+    """Create a zip file containing all output files."""
     temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
     
     with zipfile.ZipFile(temp_zip.name, 'w') as zipf:
-        for csv_file in csv_files:
+        for file_path in all_files:
             # Get the original filename from the temp file path
-            base_name = os.path.basename(csv_file)
-            zipf.write(csv_file, base_name)
+            base_name = os.path.basename(file_path)
+            # Clean up the temp prefix
+            if base_name.startswith('tmp'):
+                parts = base_name.split('_', 1)
+                if len(parts) > 1:
+                    base_name = parts[1]
+            zipf.write(file_path, base_name)
     
     temp_zip.close()
     return temp_zip.name
@@ -277,6 +346,8 @@ def create_gradio_interface():
         2. Configure the original and target grid dimensions
         3. Click "Process Grid" to generate interpolated grids
         4. Download the results and view visualizations
+        
+        **New Feature:** Interpolated grids are now exported in the same format as the input file with proper field names!
         """)
         
         with gr.Row():
@@ -339,8 +410,8 @@ def create_gradio_interface():
                 
                 summary_output = gr.Textbox(
                     label="Processing Summary",
-                    lines=20,
-                    max_lines=25,
+                    lines=25,
+                    max_lines=30,
                     show_copy_button=True
                 )
                 
@@ -394,9 +465,9 @@ def create_gradio_interface():
             
             Your GDC grid file should contain lines in the format:
             ```
-            yuv_gdc_grid_dx_0_0 1234
-            yuv_gdc_grid_dx_0_1 1235
-            yuv_gdc_grid_dx_0_2 1236
+            yuv_gdc_grid_dx_0_0 -48221
+            yuv_gdc_grid_dx_0_1 137272
+            yuv_gdc_grid_dx_0_2 -111019
             ...
             yuv_gdc_grid_dy_0_0 5678
             yuv_gdc_grid_dy_0_1 5679
@@ -406,11 +477,20 @@ def create_gradio_interface():
             
             ### Output Files
             
-            The tool generates:
-            - **Original CSV files**: Raw grid data in CSV format
-            - **Interpolated CSV files**: Bicubic-interpolated high-resolution grids
-            - **Visualizations**: Heatmap plots showing grid patterns
-            - **ZIP package**: All files bundled for easy download
+            The tool generates multiple output formats:
+            
+            **CSV Format:**
+            - Original and interpolated grids as CSV files for easy analysis
+            
+            **Input Format (NEW):**
+            - Original grids with field names (e.g., `yuv_gdc_grid_dx_0_0 value`)
+            - **Interpolated grids with field names** - same format as input file
+            - Combined file with both DX and DY interpolated grids
+            
+            **Visualizations:**
+            - Heatmap plots showing grid patterns and distributions
+            
+            All files are bundled in a ZIP package for easy download.
             """)
     
     return interface
@@ -434,8 +514,8 @@ if __name__ == "__main__":
     # Create and launch the interface
     interface = create_gradio_interface()
     interface.launch(
-        server_name="0.0.0.0",  # Allow external access
+        server_name="LocalHost",  # Allow external access
         server_port=7860,       # Default Gradio port
-        share=False,            # Set to True for public sharing
+        share=True,            # Set to True for public sharing
         debug=True              # Enable debug mode
     )

@@ -1,0 +1,122 @@
+# requirements.txt
+numpy>=1.21.0
+opencv-python>=4.5.0
+matplotlib>=3.5.0
+gradio>=4.0.0
+scipy>=1.7.0
+pillow>=8.0.0
+
+---
+
+# Barrel Distortion Simulator & Corrector
+
+A comprehensive tool for simulating barrel distortion effects and testing advanced correction algorithms.
+
+## Features
+
+🔍 **Distortion Simulation**
+- Brown-Conrady distortion model
+- Configurable radial (K1, K2, K3) and tangential (P1, P2) coefficients
+- Real-time parameter adjustment
+
+🔧 **Advanced Correction Methods**
+- Original method using forward mapping
+- Advanced iterative Newton-Raphson correction
+- Analytical solution for simple radial distortion
+- Sub-pixel accuracy validation
+
+📊 **Visualization & Analysis**
+- Interactive distortion grid visualization
+- Distortion magnitude heatmaps
+- Quality metrics (PSNR, SSIM, geometric error)
+- Method comparison tools
+
+📁 **Export Capabilities**
+- CSV format for displacement data
+- GDC (Geometric Distortion Correction) format
+- Hardware-ready fixed-point values
+- Multiple test patterns
+
+## Quick Start
+
+1. **Install Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Run Application**
+   ```bash
+   python main.py
+   ```
+
+3. **Access Web Interface**
+   - Open the URL displayed in terminal
+   - Adjust distortion parameters in real-time
+   - Compare correction methods
+   - Export results
+
+## File Structure
+
+```
+barrel_distortion_suite/
+├── main.py                           # Application launcher
+├── barrel_distortion_simulator.py    # Core distortion simulator
+├── barrel_distortion_corrector.py    # Advanced correction algorithms
+├── barrel_distortion_visualization.py # Visualization and export functions
+├── barrel_distortion_processing.py   # Processing and testing functions
+├── barrel_distortion_interface.py    # Gradio web interface
+├── requirements.txt                  # Python dependencies
+└── README.md                         # This file
+```
+
+## Usage Examples
+
+### Basic Barrel Distortion
+- K1 = -0.2, K2 = 0.05
+- Use "Advanced Iterative" for best results
+
+### Pincushion Distortion  
+- K1 = 0.15, K2 = -0.03
+- Any correction method works well
+
+### Complex Fisheye
+- K1 = -0.4, K2 = 0.1, K3 = -0.02
+- Use "Advanced Iterative" for accuracy
+
+## Correction Method Guide
+
+| Method | Best For | Speed | Accuracy |
+|--------|----------|-------|----------|
+| Original | Basic correction, visualization | Fast | Good |
+| Advanced Iterative | Complex distortions, research | Medium | Excellent |
+| Advanced Analytical | Simple K1-only distortion | Fastest | Good |
+
+## Technical Details
+
+### Distortion Model
+Uses Brown-Conrady model with:
+- Radial distortion: K1, K2, K3 coefficients
+- Tangential distortion: P1, P2 coefficients
+- Principal point adjustment
+
+### Correction Algorithms
+- **Iterative**: Newton-Raphson with numerical Jacobian
+- **Analytical**: Closed-form solution for radial-only distortion
+- **Quality Metrics**: PSNR, SSIM, geometric error analysis
+
+### Export Formats
+- **CSV**: Human-readable displacement data
+- **GDC**: Hardware implementation format with bit-shifting
+- **Hex Values**: For FPGA/ISP integration
+
+## Contributing
+
+Feel free to extend this tool with:
+- Additional distortion models
+- New correction algorithms
+- Enhanced visualization options
+- Performance optimizations
+
+## License
+
+MIT License - feel free to use and modify for your projects.

@@ -187,7 +187,7 @@ class LensDistortionSimulator:
         
         if pattern_type == "checkerboard":
             # Create checkerboard pattern
-            square_size = 80
+            square_size = 25
             for y in range(0, self.image_height, square_size):
                 for x in range(0, self.image_width, square_size):
                     if ((x // square_size) + (y // square_size)) % 2 == 0:
@@ -196,7 +196,7 @@ class LensDistortionSimulator:
         elif pattern_type == "grid":
             # Create grid lines
             img.fill(255)  # White background
-            line_spacing = 100
+            line_spacing = 10
             line_thickness = 2
             
             # Vertical lines
@@ -213,7 +213,7 @@ class LensDistortionSimulator:
             center_x, center_y = self.image_width // 2, self.image_height // 2
             max_radius = min(center_x, center_y)
             
-            for radius in range(50, max_radius, 75):
+            for radius in range(10, max_radius, 75):
                 cv2.circle(img, (center_x, center_y), radius, (0, 0, 0), 3)
                 
         elif pattern_type == "text":

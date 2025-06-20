@@ -1,5 +1,6 @@
 """
 Global application settings and defaults for Image Remapping Suite
+Updated to include GDC Grid Processing configuration
 """
 
 # Image dimensions
@@ -32,8 +33,26 @@ NUMERICAL_DERIVATIVE_EPSILON = 1e-6
 DEFAULT_GDC_WIDTH = 8192
 DEFAULT_GDC_HEIGHT = 6144
 
+# GDC Grid Processing defaults
+GRID_DEFAULTS = {
+    'original_rows': 9,
+    'original_cols': 7,
+    'target_rows': 33,
+    'target_cols': 33,
+    'interpolation_method': 'bicubic'
+}
+
+# Application configuration for GDC interface
+APP_CONFIG = {
+    'server_name': "localhost",
+    'port': 7860,
+    'share': False,
+    'debug': True
+}
+
 # File formats and export settings
 SUPPORTED_IMAGE_FORMATS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
+SUPPORTED_GRID_FORMATS = ['.txt', '.csv', '.dat']
 CSV_DECIMAL_PRECISION = 6
 HEX_FORMAT_WIDTH = 8
 
@@ -103,11 +122,61 @@ VALIDATION_RANGES = {
     'p2': (-0.1, 0.1)
 }
 
+# GDC Grid validation ranges
+GDC_VALIDATION_RANGES = {
+    'grid_rows': (3, 100),
+    'grid_cols': (3, 100),
+    'target_rows': (10, 1000),
+    'target_cols': (10, 1000),
+    'interpolation_factor': (1.1, 50.0)
+}
+
+# GDC file parsing patterns
+GDC_PARSING_CONFIG = {
+    'dx_pattern': r"yuv_gdc_grid_dx_0_(\d+)",
+    'dy_pattern': r"yuv_gdc_grid_dy_0_(\d+)",
+    'element_pattern': r"_(dx|dy)_0_(\d+)$",
+    'line_format': r"^(\S+)\s+(-?\d+)$",
+    'max_file_size_mb': 100,
+    'encoding': 'utf-8'
+}
+
+# Export format configurations
+EXPORT_FORMATS = {
+    'csv': {
+        'delimiter': ',',
+        'decimal_places': 6,
+        'include_headers': True
+    },
+    'gdc': {
+        'naming_convention': 'yuv_gdc_grid_{type}_0_{index}',
+        'value_format': 'integer',
+        'include_combined': True
+    },
+    'json': {
+        'indent': 2,
+        'include_metadata': True
+    }
+}
+
+# Visualization configurations
+VISUALIZATION_CONFIG = {
+    'default_colormap': 'viridis',
+    'comparison_colormap': 'RdBu_r',
+    'figure_dpi': 150,
+    'figure_size': (10, 8),
+    'comparison_figure_size': (15, 6),
+    'save_format': 'png',
+    'bbox_inches': 'tight'
+}
+
 # Performance settings
 PERFORMANCE = {
     'use_multiprocessing': True,
     'chunk_size': 1000,
-    'memory_limit_mb': 2048
+    'memory_limit_mb': 2048,
+    'max_grid_size': 1000000,  # Maximum total grid elements
+    'interpolation_cache_size': 100  # Number of interpolation results to cache
 }
 
 # Logging configuration
@@ -115,4 +184,28 @@ LOGGING = {
     'level': 'INFO',
     'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     'file': None  # Set to filename for file logging
+}
+
+# Temporary file management
+TEMP_FILE_CONFIG = {
+    'cleanup_on_exit': True,
+    'max_temp_files': 1000,
+    'temp_dir': None,  # Use system default
+    'file_retention_hours': 24
+}
+
+# Error handling configuration
+ERROR_HANDLING = {
+    'max_retries': 3,
+    'retry_delay_seconds': 1.0,
+    'graceful_degradation': True,
+    'fallback_interpolation': 'linear'
+}
+
+# Security settings for file uploads
+SECURITY_CONFIG = {
+    'max_upload_size_mb': 50,
+    'allowed_extensions': ['.txt', '.csv', '.dat'],
+    'scan_content': True,
+    'max_lines_per_file': 1000000
 }

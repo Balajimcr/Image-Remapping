@@ -1,3 +1,6 @@
+# Image Remapping Suite - Enhanced Requirements
+# Now includes GDC Grid Processing capabilities
+
 # Core Dependencies
 numpy>=1.21.0
 opencv-python>=4.5.0
@@ -7,21 +10,35 @@ pillow>=8.0.0
 # Web Interface
 gradio>=4.0.0
 
-# Visualization
+# Visualization and Analysis
 matplotlib>=3.5.0
 seaborn>=0.11.0
 
 # Data Processing
 pandas>=1.3.0
 
-# Optional Dependencies for Enhanced Functionality
-# Uncomment as needed:
+# GDC Grid Processing Dependencies
+# Enhanced interpolation and grid processing
+scikit-image>=0.19.0
 
-# scikit-image>=0.18.0          # Additional image processing
-# scikit-learn>=1.0.0           # Machine learning utilities
-# opencv-contrib-python>=4.5.0  # Extended OpenCV modules
-# plotly>=5.0.0                 # Interactive plotting
-# dash>=2.0.0                   # Alternative web framework
+# Optional Enhanced Dependencies
+# Uncomment as needed for additional functionality:
+
+# Machine Learning and Advanced Analysis
+# scikit-learn>=1.0.0           # Machine learning utilities for advanced analysis
+# opencv-contrib-python>=4.5.0  # Extended OpenCV modules for advanced transforms
+
+# Interactive Visualization  
+# plotly>=5.0.0                 # Interactive plotting for advanced visualizations
+# bokeh>=2.4.0                  # Alternative interactive plotting
+
+# Alternative Web Frameworks
+# dash>=2.0.0                   # Alternative to Gradio for custom interfaces
+# streamlit>=1.0.0              # Another web framework option
+
+# Performance Optimization
+# numba>=0.56.0                 # JIT compilation for performance-critical operations
+# joblib>=1.1.0                 # Parallel processing utilities
 
 # Development Dependencies (for contributors)
 # pytest>=6.0.0                 # Testing framework
@@ -29,45 +46,78 @@ pandas>=1.3.0
 # black>=21.0.0                 # Code formatting
 # flake8>=3.9.0                 # Linting
 # mypy>=0.910                   # Type checking
+# pre-commit>=2.15.0            # Git hooks for code quality
 
 # Documentation Dependencies
 # sphinx>=4.0.0                 # Documentation generation
 # sphinx-rtd-theme>=0.5.0       # Documentation theme
+# nbsphinx>=0.8.0               # Jupyter notebook support in docs
+
+# Testing and Quality Assurance
+# hypothesis>=6.0.0             # Property-based testing
+# coverage>=6.0.0               # Code coverage analysis
+# bandit>=1.7.0                 # Security linting
+
+# File Format Support
+# h5py>=3.1.0                   # HDF5 file support for large datasets
+# pyarrow>=5.0.0                # Parquet file support for efficient data storage
 
 ---
 
-# Image Remapping Suite - Comprehensive Toolkit
+# INSTALLATION GUIDE
 
-## System Requirements
-
-- Python 3.8 or higher
-- At least 4GB RAM (8GB recommended for large images)
-- Modern web browser for Gradio interface
-
-## Installation Instructions
-
-### Standard Installation
+## Standard Installation
 ```bash
 pip install -r requirements.txt
 ```
 
-### Development Installation
+## Development Installation
 ```bash
 # Install with development dependencies
 pip install -r requirements.txt
-pip install pytest pytest-cov black flake8 mypy
 
-# Install in development mode
+# Uncomment development dependencies in requirements.txt, then:
+pip install pytest pytest-cov black flake8 mypy pre-commit
+
+# Install in development mode (if setup.py exists)
 pip install -e .
 ```
 
-### Docker Installation (Optional)
+## Performance-Optimized Installation
+```bash
+# Install base requirements
+pip install -r requirements.txt
+
+# Add performance optimizations
+pip install numba mkl joblib
+
+# For CUDA acceleration (if NVIDIA GPU available)
+pip install opencv-python-cuda
+```
+
+## Minimal Installation (Core Features Only)
+```bash
+# Essential dependencies only
+pip install numpy>=1.21.0 opencv-python>=4.5.0 scipy>=1.7.0 pillow>=8.0.0 gradio>=4.0.0 matplotlib>=3.5.0 seaborn>=0.11.0 pandas>=1.3.0
+```
+
+## Docker Installation
 ```dockerfile
 FROM python:3.9-slim
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 EXPOSE 7860
@@ -75,59 +125,168 @@ EXPOSE 7860
 CMD ["python", "main.py"]
 ```
 
-## Platform-Specific Notes
-
-### Windows
-- Ensure Microsoft Visual C++ redistributables are installed
-- Consider using Anaconda for easier OpenCV installation
-
-### macOS  
-- May require Xcode command line tools for some dependencies
-- Use Homebrew for system-level dependencies if needed
-
-### Linux
-- Most distributions include required system libraries
-- Ubuntu/Debian: `sudo apt-get install python3-dev`
-- CentOS/RHEL: `sudo yum install python3-devel`
-
-## Troubleshooting
-
-### Common Issues
-
-1. **OpenCV Installation Problems**
-   ```bash
-   # Try alternative installation
-   pip uninstall opencv-python
-   pip install opencv-python-headless
-   ```
-
-2. **Gradio Port Conflicts**
-   ```bash
-   # Specify custom port
-   python main.py --port 7861
-   ```
-
-3. **Memory Issues with Large Images**
-   - Reduce image dimensions in config/settings.py
-   - Increase system virtual memory
-   - Use lower grid densities for initial testing
-
-4. **Import Errors**
-   ```bash
-   # Ensure proper Python path
-   export PYTHONPATH="${PYTHONPATH}:/path/to/image_remapping_suite"
-   ```
-
-### Performance Optimization
-
-For better performance, consider installing:
+## Conda Installation Alternative
 ```bash
-# Intel Math Kernel Library acceleration
+# Create conda environment
+conda create -n image_remapping python=3.9
+conda activate image_remapping
+
+# Install conda-available packages
+conda install numpy scipy matplotlib pillow pandas seaborn scikit-image
+
+# Install pip-only packages
+pip install gradio opencv-python
+```
+
+---
+
+# SYSTEM REQUIREMENTS
+
+## Minimum Requirements
+- **Python**: 3.8 or higher
+- **RAM**: 4GB (8GB recommended for large images)
+- **Storage**: 2GB free space
+- **OS**: Windows 10, macOS 10.14, or Linux (Ubuntu 18.04+)
+
+## Recommended Requirements  
+- **Python**: 3.9 or 3.10
+- **RAM**: 8GB or more
+- **Storage**: 5GB free space (for datasets and exports)
+- **OS**: Latest stable OS versions
+- **GPU**: Optional, but recommended for large-scale processing
+
+## Browser Requirements (for Web Interface)
+- **Modern Browser**: Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
+- **JavaScript**: Enabled
+- **WebGL**: Supported (for advanced visualizations)
+
+---
+
+# PLATFORM-SPECIFIC NOTES
+
+## Windows
+- **Visual C++ Redistributables**: Required for OpenCV
+- **Anaconda**: Recommended for easier dependency management
+- **Windows Subsystem for Linux (WSL)**: Alternative for Linux-like experience
+
+## macOS
+- **Xcode Command Line Tools**: May be required
+  ```bash
+  xcode-select --install
+  ```
+- **Homebrew**: Useful for system-level dependencies
+- **Apple Silicon (M1/M2)**: All dependencies support ARM architecture
+
+## Linux
+- **Ubuntu/Debian**:
+  ```bash
+  sudo apt-get update
+  sudo apt-get install python3-dev python3-pip libgl1-mesa-glx
+  ```
+- **CentOS/RHEL**:
+  ```bash
+  sudo yum install python3-devel python3-pip mesa-libGL
+  ```
+- **Arch Linux**:
+  ```bash
+  sudo pacman -S python-pip mesa
+  ```
+
+---
+
+# TROUBLESHOOTING
+
+## Common Installation Issues
+
+### 1. OpenCV Installation Problems
+```bash
+# Try headless version if GUI issues occur
+pip uninstall opencv-python
+pip install opencv-python-headless
+```
+
+### 2. SciPy Compilation Issues
+```bash
+# Install pre-compiled binaries
+pip install --only-binary=scipy scipy
+```
+
+### 3. Gradio Port Conflicts
+```bash
+# Specify custom port
+python main.py --port 7861
+```
+
+### 4. Memory Issues with Large Grids
+- Reduce grid dimensions in processing
+- Increase system virtual memory
+- Use sparse processing methods
+- Consider processing in chunks
+
+### 5. Permission Errors
+```bash
+# Use user-level installation
+pip install --user -r requirements.txt
+```
+
+## Performance Optimization Tips
+
+### For Better Performance
+```bash
+# Intel Math Kernel Library
 pip install mkl
 
-# CUDA acceleration (if NVIDIA GPU available)  
+# Just-In-Time compilation
+pip install numba
+
+# Parallel processing
+pip install joblib
+```
+
+### For CUDA Acceleration (NVIDIA GPUs)
+```bash
+# CUDA-enabled OpenCV
 pip install opencv-python-cuda
 
-# Numba for JIT compilation
-pip install numba
+# Verify CUDA availability
+python -c "import cv2; print('CUDA devices:', cv2.cuda.getCudaEnabledDeviceCount())"
+```
+
+### Memory Management
+- Set environment variables for better memory usage:
+  ```bash
+  export OPENCV_IO_MAX_IMAGE_PIXELS=1000000000
+  export PYTHONHASHSEED=0
+  ```
+
+---
+
+# VERIFICATION
+
+## Test Installation
+```python
+# Run this script to verify installation
+import numpy as np
+import cv2
+import scipy
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import gradio as gr
+
+print("✅ All core dependencies imported successfully!")
+print(f"NumPy: {np.__version__}")
+print(f"OpenCV: {cv2.__version__}")
+print(f"SciPy: {scipy.__version__}")
+print(f"Matplotlib: {matplotlib.__version__}")
+print(f"Gradio: {gr.__version__}")
+```
+
+## Quick Functionality Test
+```bash
+# Test basic functionality
+python main.py --check
+
+# Test specific interface
+python main.py --interface gdc --check
 ```

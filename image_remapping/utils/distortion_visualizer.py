@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Standalone Distortion Map Visualizer - Optimized Version
-Real-time interactive visualization of lens distortion parameters
+Enhanced Distortion Map Visualizer with GDC Export - Fixed Version
+Real-time interactive visualization of lens distortion parameters with GDC grid export capability
 
 High-performance vectorized implementation for real-time visualization
-of distortion maps using the Brown-Conrady model.
+of distortion maps using the Brown-Conrady model with hardware-ready export options.
 
 Author: Balaji R
 License: MIT
@@ -18,12 +18,18 @@ from matplotlib.collections import LineCollection
 import matplotlib.patches as patches
 from matplotlib.colors import LinearSegmentedColormap
 import io
+import math
+import csv
+import zipfile
+import tempfile
+import os
 from typing import Tuple, Optional
 from functools import lru_cache
 import time
+from datetime import datetime
 
-class OptimizedDistortionVisualizer:
-    """High-performance vectorized distortion map visualizer"""
+class OptimizedDistortionVisualizerWithGDC:
+    """High-performance vectorized distortion map visualizer with GDC export capabilities"""
     
     def __init__(self):
         self.image_width = 1280
@@ -36,6 +42,10 @@ class OptimizedDistortionVisualizer:
         
         # Cache for grid coordinates to avoid recomputation
         self._cached_grids = {}
+        
+        # GDC export configuration
+        self.default_gdc_width = 8192
+        self.default_gdc_height = 6144
         
     def _update_normalization_factors(self):
         """Pre-compute normalization factors for better performance"""
@@ -139,19 +149,138 @@ class OptimizedDistortionVisualizer:
         
         return np.stack([source_X, source_Y], axis=-1), np.stack([target_X, target_Y], axis=-1)
     
-    def create_grid_visualization_optimized(self, grid_rows: int, grid_cols: int,
-                                          k1: float, k2: float, k3: float,
-                                          p1: float, p2: float) -> np.ndarray:
+    def export_gdc_format_only(self, grid_rows: int, grid_cols: int,
+                              k1: float, k2: float, k3: float, p1: float, p2: float,
+                              gdc_width: int = None, gdc_height: int = None) -> str:
         """
-        Optimized grid visualization using LineCollection for better performance
+        Export distortion grid in GDC (Geometric Distortion Correction) format only
         
         Args:
             grid_rows, grid_cols: Grid dimensions
             k1, k2, k3: Radial distortion coefficients
             p1, p2: Tangential distortion coefficients
+            gdc_width, gdc_height: Target GDC dimensions
             
         Returns:
-            Visualization image as numpy array
+            Path to created CSV file with GDC format
+        """
+        if gdc_width is None:
+            gdc_width = self.default_gdc_width
+        if gdc_height is None:
+            gdc_height = self.default_gdc_height
+            
+        # Generate distortion grid (simple, fast)
+        source_coords, target_coords = self.generate_distortion_grid_vectorized(
+            grid_rows, grid_cols, k1, k2, k3, p1, p2
+        )
+        
+        # Calculate displacement vectors (simple subtraction)
+        displacement = source_coords - target_coords
+        displacement_x = displacement[:, :, 0]
+        displacement_y = displacement[:, :, 1]
+        
+        # Create temporary file for GDC export
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_dir = tempfile.gettempdir()
+        gdc_file = os.path.join(temp_dir, f"gdc_grid_data_{timestamp}.csv")
+        
+        try:
+            # Convert displacement to GDC format (simple conversion only)
+            grid_distort_x, grid_distort_y = self._convert_to_gdc_format(
+                displacement_x, displacement_y, gdc_width, gdc_height
+            )
+            
+            # Write simple CSV file
+            with open(gdc_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                
+                # Write header with metadata
+                writer.writerow([f"# GDC Grid Data (Hardware Ready Format) - Generated: {datetime.now().isoformat()}"])
+                writer.writerow([f"# Parameters: K1={k1:.6f}, K2={k2:.6f}, K3={k3:.6f}, P1={p1:.6f}, P2={p2:.6f}"])
+                writer.writerow([f"# Original Grid: {grid_rows}x{grid_cols}, Target Resolution: {gdc_width}x{gdc_height}"])
+                writer.writerow([f"# Image Size: {self.image_width}x{self.image_height}, Center: ({self.cx:.1f}, {self.cy:.1f})"])
+                writer.writerow([f"# Scale Factors: X={int((gdc_width * (2**14)) / self.image_width)}, Y={int((gdc_height * (2**14)) / self.image_height)}"])
+                writer.writerow([])
+                
+                # Write GDC X values (direct output, no interpolation)
+                rows, cols = grid_distort_x.shape
+                for row in range(rows):
+                    for col in range(cols):
+                        value = int(grid_distort_x[row, col])
+                        hex_value = self._format_hex_value(value, signed=True)
+                        writer.writerow([f"yuv_gdc_grid_dx_{row}_{col}", value, hex_value])
+                
+                # Write GDC Y values (direct output, no interpolation)
+                for row in range(rows):
+                    for col in range(cols):
+                        value = int(grid_distort_y[row, col])
+                        hex_value = self._format_hex_value(value, signed=True)
+                        writer.writerow([f"yuv_gdc_grid_dy_{row}_{col}", value, hex_value])
+            
+            return gdc_file
+            
+        except Exception as e:
+            # Clean up on error
+            if os.path.exists(gdc_file):
+                os.remove(gdc_file)
+            raise e
+    
+    def _convert_to_gdc_format(self, displacement_x: np.ndarray, displacement_y: np.ndarray,
+                              gdc_width: int, gdc_height: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Convert displacement arrays to GDC format using the hardware conversion formula
+        
+        Args:
+            displacement_x, displacement_y: Displacement arrays
+            gdc_width, gdc_height: Target GDC dimensions
+            
+        Returns:
+            GDC format arrays (grid_distort_x, grid_distort_y)
+        """
+        rows, cols = displacement_x.shape
+        
+        # Initialize output grids
+        grid_distort_x = np.zeros((rows, cols), dtype=np.int32)
+        grid_distort_y = np.zeros((rows, cols), dtype=np.int32)
+        
+        for row in range(rows):
+            for col in range(cols):
+                # Get displacement values
+                delta_x = float(displacement_x[row, col])
+                delta_y = float(displacement_y[row, col])
+                
+                # Apply GDC conversion formula for X
+                # grid_distort_x = (ceil(((Delta_x * round((gdc_width << 14) / image_width)) << 2) / (2^14))) << 7
+                scale_factor_x = int(round((gdc_width * (2 ** 14)) / self.image_width))
+                scaled_delta_x = delta_x * scale_factor_x
+                shifted_delta_x = scaled_delta_x * 4  # << 2
+                intermediate_x = math.ceil(shifted_delta_x / (2 ** 14))
+                grid_distort_x[row, col] = int(intermediate_x) << 7
+                
+                # Apply GDC conversion formula for Y
+                # grid_distort_y = (ceil(((Delta_y * round((gdc_height << 14) / image_height)) << 2) / (2^14))) << 7
+                scale_factor_y = int(round((gdc_height * (2 ** 14)) / self.image_height))
+                scaled_delta_y = delta_y * scale_factor_y
+                shifted_delta_y = scaled_delta_y * 4  # << 2
+                intermediate_y = math.ceil(shifted_delta_y / (2 ** 14))
+                grid_distort_y[row, col] = int(intermediate_y) << 7
+        
+        return grid_distort_x, grid_distort_y
+    
+    def _format_hex_value(self, value: int, signed: bool = True) -> str:
+        """Format integer value as hexadecimal string"""
+        if signed and value < 0:
+            # Two's complement representation for negative values
+            hex_value = f"0x{value & 0xFFFFFFFF:08X}"
+        else:
+            hex_value = f"0x{value:08X}"
+        return hex_value
+    
+    def create_grid_visualization_optimized(self, grid_rows: int, grid_cols: int,
+                                          k1: float, k2: float, k3: float,
+                                          p1: float, p2: float) -> np.ndarray:
+        """
+        Optimized grid visualization using LineCollection for better performance
         """
         # Generate distortion grid (vectorized)
         source_coords, target_coords = self.generate_distortion_grid_vectorized(
@@ -168,47 +297,39 @@ class OptimizedDistortionVisualizer:
         ax.invert_yaxis()
         
         # Prepare line segments for target grid (vectorized)
-        target_h_lines = []  # Horizontal lines
-        target_v_lines = []  # Vertical lines
+        target_lines = []
+        source_lines = []
         
-        # Horizontal lines
+        # Horizontal and vertical lines for target grid
         for row in range(grid_rows):
             for col in range(grid_cols - 1):
                 line = [target_coords[row, col], target_coords[row, col + 1]]
-                target_h_lines.append(line)
+                target_lines.append(line)
         
-        # Vertical lines
         for row in range(grid_rows - 1):
             for col in range(grid_cols):
                 line = [target_coords[row, col], target_coords[row + 1, col]]
-                target_v_lines.append(line)
+                target_lines.append(line)
         
-        # Prepare line segments for distorted grid (vectorized)
-        source_h_lines = []  # Horizontal lines
-        source_v_lines = []  # Vertical lines
-        
-        # Horizontal lines
+        # Horizontal and vertical lines for distorted grid
         for row in range(grid_rows):
             for col in range(grid_cols - 1):
                 line = [source_coords[row, col], source_coords[row, col + 1]]
-                source_h_lines.append(line)
+                source_lines.append(line)
         
-        # Vertical lines
         for row in range(grid_rows - 1):
             for col in range(grid_cols):
                 line = [source_coords[row, col], source_coords[row + 1, col]]
-                source_v_lines.append(line)
+                source_lines.append(line)
         
         # Create LineCollections for efficient rendering
-        if target_h_lines:
-            target_lines = LineCollection(target_h_lines + target_v_lines, 
-                                        colors='lightgray', linewidths=1, alpha=0.6)
-            ax.add_collection(target_lines)
+        if target_lines:
+            target_collection = LineCollection(target_lines, colors='lightgray', linewidths=1, alpha=0.6)
+            ax.add_collection(target_collection)
         
-        if source_h_lines:
-            source_lines = LineCollection(source_h_lines + source_v_lines, 
-                                        colors='red', linewidths=2, alpha=0.8)
-            ax.add_collection(source_lines)
+        if source_lines:
+            source_collection = LineCollection(source_lines, colors='red', linewidths=2, alpha=0.8)
+            ax.add_collection(source_collection)
         
         # Calculate distortion vectors (vectorized)
         displacement = source_coords - target_coords
@@ -263,14 +384,6 @@ class OptimizedDistortionVisualizer:
                                          p1: float, p2: float) -> np.ndarray:
         """
         Optimized heatmap generation using vectorized operations
-        
-        Args:
-            grid_rows, grid_cols: Grid dimensions
-            k1, k2, k3: Radial distortion coefficients
-            p1, p2: Tangential distortion coefficients
-            
-        Returns:
-            Heatmap image as numpy array
         """
         # Generate distortion grid (vectorized)
         source_coords, target_coords = self.generate_distortion_grid_vectorized(
@@ -314,14 +427,6 @@ class OptimizedDistortionVisualizer:
                                       p1: float, p2: float, num_points: int = 100) -> np.ndarray:
         """
         Optimized radial profile generation using vectorized operations
-        
-        Args:
-            k1, k2, k3: Radial distortion coefficients
-            p1, p2: Tangential distortion coefficients
-            num_points: Number of points for profile calculation
-            
-        Returns:
-            Profile plot as numpy array
         """
         # Calculate max radius
         max_radius = min(self.cx, self.cy, self.image_width - self.cx, self.image_height - self.cy)
@@ -395,7 +500,6 @@ class OptimizedDistortionVisualizer:
         
         # Create buffer
         buf = io.BytesIO()
-        # Remove optimize parameter for compatibility
         fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', 
                    facecolor='white', edgecolor='none')
         buf.seek(0)
@@ -411,13 +515,13 @@ class OptimizedDistortionVisualizer:
         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-def create_optimized_distortion_visualizer():
-    """Create the optimized Gradio interface for distortion visualization"""
+def create_enhanced_distortion_visualizer():
+    """Create the enhanced Gradio interface with GDC export capability"""
     
-    visualizer = OptimizedDistortionVisualizer()
+    visualizer = OptimizedDistortionVisualizerWithGDC()
     
     def update_visualizations(k1, k2, k3, p1, p2, grid_rows, grid_cols):
-        """Update all visualizations with performance timing"""
+        """Update all visualizations with performance timing - FIXED to prevent loops"""
         try:
             start_time = time.time()
             
@@ -473,32 +577,107 @@ def create_optimized_distortion_visualizer():
             error_msg = f"⚠️ **Error generating visualizations:** {str(e)}\n\nTry reducing grid size or adjusting parameters."
             return None, None, None, error_msg
     
-    # Create Gradio interface with performance optimizations
+    def export_gdc_data(k1, k2, k3, p1, p2, grid_rows, grid_cols, gdc_width, gdc_height):
+        """Export GDC grid data with progress feedback - FIXED to return file properly"""
+        try:
+            start_time = time.time()
+            
+            # Generate GDC export
+            gdc_file_path = visualizer.export_gdc_format_only(
+                grid_rows, grid_cols, k1, k2, k3, p1, p2,
+                int(gdc_width), int(gdc_height)
+            )
+            
+            export_time = time.time() - start_time
+            
+            # Generate export summary
+            distortion_type = visualizer._classify_distortion_fast(k1, k2, k3, p1, p2)
+            total_points = grid_rows * grid_cols
+            
+            summary = f"""
+**✅ GDC Export Completed Successfully!** (Generated in {export_time:.2f}s)
+
+**📦 Export Details:**
+- **File:** {os.path.basename(gdc_file_path)}
+- **Distortion Type:** {distortion_type}
+- **Grid Size:** {grid_rows} × {grid_cols} = {total_points} points
+- **Target Resolution:** {int(gdc_width)} × {int(gdc_height)} pixels
+- **Format:** Hardware-Ready GDC with Hex Values
+
+**🎯 Parameters Used:**
+- K1={k1:.4f}, K2={k2:.4f}, K3={k3:.4f}
+- P1={p1:.4f}, P2={p2:.4f}
+
+**🔧 Hardware Integration:**
+- **Field Names:** yuv_gdc_grid_dx_R_C, yuv_gdc_grid_dy_R_C
+- **Fixed-Point:** Bit-shifted values for ISP/FPGA
+- **Hex Encoding:** Two's complement for negative values
+- **Scale Factors:** X={int((gdc_width * (2**14)) / visualizer.image_width)}, Y={int((gdc_height * (2**14)) / visualizer.image_height)}
+
+**📊 File Structure:**
+- Header with metadata and parameters
+- DX grid values: {total_points} entries
+- DY grid values: {total_points} entries
+- Total entries: {total_points * 2}
+
+**⚡ Performance:** Fast direct conversion - no interpolation
+Download the CSV file below for hardware integration.
+            """
+            
+            return gdc_file_path, summary
+            
+        except Exception as e:
+            error_summary = f"""
+**❌ GDC Export Failed**
+
+**Error:** {str(e)}
+
+**Troubleshooting:**
+- Reduce grid size if memory issues occur
+- Check that parameters are within valid ranges
+- Ensure sufficient disk space for export files
+
+**Valid Ranges:**
+- Grid size: 3-30 rows/columns  
+- GDC dimensions: 1024-16384 pixels
+- Distortion coefficients: See parameter tooltips
+            """
+            return None, error_summary
+    
+    # Create Gradio interface with enhanced export functionality
     with gr.Blocks(
-        title="⚡ Optimized Distortion Visualizer", 
+        title="⚡ Enhanced Distortion Visualizer with GDC Export", 
         theme=gr.themes.Soft(),
         css="""
         .gradio-container {
-            max-width: 1400px !important;
+            max-width: 1600px !important;
         }
         #summary_output {
             font-family: 'Monaco', 'Consolas', monospace;
             font-size: 0.9em;
             line-height: 1.4;
         }
+        #export_summary {
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.85em;
+            line-height: 1.4;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+        }
         """
     ) as interface:
         
         gr.Markdown("""
-        # 🔍 **Distortion Map Visualizer**
+        # 🔍 **Enhanced Distortion Visualizer with GDC Export**
         
-        Interactive visualization of lens distortion using the **Brown-Conrady model**.
-        Adjust parameters using the sliders below to see real-time changes in the distortion maps.
+        Interactive visualization and export tool for lens distortion using the **Brown-Conrady model**.
+        Features real-time distortion mapping with **hardware-ready GDC format export** capabilities.
         
-        📊 **Visualization Modes:**
-        - **Grid View**: Shows how distortion affects a regular grid
-        - **Heatmap**: Color-coded distortion strength across the image
-        - **Profile**: Distortion as a function of distance from center
+        📊 **Features:**
+        - **Real-time Visualization**: Grid view, heatmap, and radial profile
+        - **GDC Export**: Hardware-ready format for ISP/FPGA implementation
+        - **Performance Optimized**: Vectorized calculations for smooth interaction
         """)
         
         with gr.Row():
@@ -585,6 +764,36 @@ def create_optimized_distortion_visualizer():
                     elem_id="summary_output"
                 )
                 
+                gr.Markdown("### 📦 **GDC Export Configuration**")
+                
+                gdc_width = gr.Number(
+                    value=8192, minimum=1024, maximum=16384, step=1,
+                    label="GDC Target Width",
+                    info="Hardware target width (typical: 8192)"
+                )
+                
+                gdc_height = gr.Number(
+                    value=6144, minimum=768, maximum=12288, step=1,
+                    label="GDC Target Height", 
+                    info="Hardware target height (typical: 6144)"
+                )
+                
+                export_btn = gr.Button(
+                    "📦 Export GDC Grid", 
+                    variant="primary", 
+                    size="lg"
+                )
+                
+                export_file = gr.File(
+                    label="📁 Download GDC File",
+                    visible=False
+                )
+                
+                export_summary = gr.Markdown(
+                    "**💡 Ready to Export:** Configure parameters above and click 'Export GDC Grid' to generate hardware-ready file.",
+                    elem_id="export_summary"
+                )
+                
             with gr.Column(scale=2):
                 gr.Markdown("### 📊 **Optimized Real-Time Visualizations**")
                 
@@ -629,8 +838,57 @@ def create_optimized_distortion_visualizer():
                     - **NumPy Operations**: Fast array-based calculations
                     - **Memory Efficient**: Minimal temporary arrays
                     """)
+                
+                with gr.Tab("📦 GDC Format Info"):
+                    gr.Markdown("""
+                    ### 🔧 **GDC Hardware Format Details**
+                    
+                    **What is GDC Format?**
+                    - **Geometric Distortion Correction** format for hardware implementation
+                    - **Fixed-point arithmetic** with bit-shifting for ISP/FPGA
+                    - **Two's complement** hex encoding for negative values
+                    - **Field names** ready for direct integration: `yuv_gdc_grid_dx_R_C`, `yuv_gdc_grid_dy_R_C`
+                    
+                    **Hardware Conversion Formula:**
+                    ```
+                    grid_distort_x = (ceil(((Delta_x * scale_factor_x) << 2) / 2^14)) << 7
+                    grid_distort_y = (ceil(((Delta_y * scale_factor_y) << 2) / 2^14)) << 7
+                    
+                    where:
+                    scale_factor_x = round((gdc_width << 14) / image_width)
+                    scale_factor_y = round((gdc_height << 14) / image_height)
+                    ```
+                    
+                    **Export File Contents:**
+                    - **Header**: Metadata with parameters and image info
+                    - **DX Values**: `yuv_gdc_grid_dx_row_col, decimal_value, hex_value`
+                    - **DY Values**: `yuv_gdc_grid_dy_row_col, decimal_value, hex_value`
+                    - **Direct Conversion**: Original grid resolution only - no interpolation
+                    - **Ready to Use**: Direct copy-paste into hardware configurations
+                    
+                    **Typical Use Cases:**
+                    - 📷 Camera ISP distortion correction modules
+                    - 🔧 FPGA-based real-time image processing
+                    - 🎯 Embedded vision system calibration
+                    - 📊 Hardware validation and quality control
+                    
+                    **Integration Example:**
+                    ```c
+                    // Hardware register values from exported file
+                    yuv_gdc_grid_dx_0_0 = -1536;  // 0xFFFFFA00
+                    yuv_gdc_grid_dy_0_0 = 2048;   // 0x00000800
+                    ```
+                    """)
         
-        # Connect preset buttons with optimized handlers
+        # Event handlers for visualization updates - FIXED to prevent infinite loops
+        def update_export_file_visibility(file_path, summary):
+            """Update export file visibility based on export success"""
+            if file_path is not None:
+                return gr.update(visible=True, value=file_path)
+            else:
+                return gr.update(visible=False)
+        
+        # Connect preset buttons
         barrel_btn.click(
             fn=apply_barrel_preset,
             outputs=[k1, k2, k3, p1, p2]
@@ -656,54 +914,76 @@ def create_optimized_distortion_visualizer():
             outputs=[k1, k2, k3, p1, p2]
         )
         
-        # Optimized real-time updates with debouncing
-        inputs = [k1, k2, k3, p1, p2, grid_rows, grid_cols]
-        outputs = [grid_output, heatmap_output, profile_output, summary_output]
+        # Connect export functionality - FIXED to prevent loops
+        export_btn.click(
+            fn=export_gdc_data,
+            inputs=[k1, k2, k3, p1, p2, grid_rows, grid_cols, gdc_width, gdc_height],
+            outputs=[export_file, export_summary]
+        ).then(
+            fn=update_export_file_visibility,
+            inputs=[export_file, export_summary],
+            outputs=[export_file]
+        )
         
-        # Connect all parameter changes to update function
-        for input_component in inputs:
+        # FIXED: Real-time updates without infinite loops
+        visualization_inputs = [k1, k2, k3, p1, p2, grid_rows, grid_cols]
+        visualization_outputs = [grid_output, heatmap_output, profile_output, summary_output]
+        
+        # Connect parameter changes to visualization updates only (no circular dependencies)
+        for input_component in visualization_inputs:
             input_component.change(
                 fn=update_visualizations,
-                inputs=inputs,
-                outputs=outputs,
-                show_progress=False  # Disable progress bar for faster updates
+                inputs=visualization_inputs,
+                outputs=visualization_outputs,
+                show_progress=False
             )
         
-        # Initial load with performance timing
+        # Initial load
         interface.load(
             fn=update_visualizations,
-            inputs=inputs,
-            outputs=outputs
-        )        
+            inputs=visualization_inputs,
+            outputs=visualization_outputs
+        )
+        
     return interface
 
-def launch_optimized_visualizer():
-    """Launch the optimized distortion visualizer application"""
-    interface = create_optimized_distortion_visualizer()
+def launch_enhanced_visualizer():
+    """Launch the enhanced distortion visualizer application with GDC export"""
+    interface = create_enhanced_distortion_visualizer()
     
     interface.launch(
         server_name="localhost",
-        server_port=7861,  # Different port to avoid conflicts
+        server_port=7862,
         share=False,
         show_error=True,
         quiet=False,
         debug=False,
-        max_threads=4  # Optimize for performance
+        max_threads=4
     )
 
 if __name__ == "__main__":
-    print("⚡ Starting OPTIMIZED Distortion Map Visualizer...")
-    print("=" * 60)
+    print("⚡ Starting ENHANCED Distortion Visualizer with GDC Export...")
+    print("=" * 70)
     print("🚀 High-Performance Vectorized Implementation")
     print("📊 Real-time visualization with advanced optimizations")
-    print("🎯 Up to 10x faster than standard implementation")
-    print("=" * 60)
+    print("📦 GDC Export: Hardware-ready format generation")
+    print("🎯 Fixed infinite loop issue - stable performance")
+    print("=" * 70)
     print("🌐 Navigate to the URL shown below...")
     print("⚡ Performance improvements:")
     print("   • Vectorized Brown-Conrady model")
     print("   • Cached grid generation")
     print("   • Optimized matplotlib rendering")
     print("   • Efficient memory management")
-    print("=" * 60)
+    print("📦 GDC Export features:")
+    print("   • Hardware-ready CSV format only")
+    print("   • Fixed-point arithmetic with bit-shifting")
+    print("   • Two's complement hex encoding")
+    print("   • Direct ISP/FPGA integration")
+    print("🔧 Fixes applied:")
+    print("   • Removed infinite loop in visualization updates")
+    print("   • Simplified export to GDC format only")
+    print("   • Optimized event handling")
+    print("=" * 70)
     
-    launch_optimized_visualizer()
+    launch_enhanced_visualizer()

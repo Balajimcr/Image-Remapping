@@ -206,16 +206,22 @@ class OptimizedDistortionVisualizerWithGDC:
                 rows, cols = grid_distort_x.shape
                 for row in range(rows):
                     for col in range(cols):
+                        # Calculate 1D index
+                        gdc_index = row * cols + col
                         value = int(grid_distort_x[row, col])
                         hex_value = self._format_hex_value(value, signed=True)
-                        writer.writerow([f"yuv_gdc_grid_dx_{row}_{col}", value, hex_value])
+                        # Use 1D index in the output format
+                        writer.writerow([f"yuv_gdc_grid_dx_0_{gdc_index}", value, hex_value])
                 
                 # Write GDC Y values (direct output, no interpolation)
                 for row in range(rows):
                     for col in range(cols):
+                        # Calculate 1D index
+                        gdc_index = row * cols + col
                         value = int(grid_distort_y[row, col])
                         hex_value = self._format_hex_value(value, signed=True)
-                        writer.writerow([f"yuv_gdc_grid_dy_{row}_{col}", value, hex_value])
+                        # Use 1D index in the output format
+                        writer.writerow([f"yuv_gdc_grid_dy_0_{gdc_index}", value, hex_value])
             
             return gdc_file
             

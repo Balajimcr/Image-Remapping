@@ -326,20 +326,20 @@ def process_gdc_data(
             os.makedirs(final_output_subdir, exist_ok=True)
             print(f"Saving results to: {final_output_subdir}")
         
-        # Create CSV files with hex values
-        dx_csv = create_csv_file_with_hex(dx_grid_2d, f"dx_grid_{original_rows}x{original_cols}_with_hex.csv", 
-                                         "DX", hex_bits, final_output_subdir)
-        dy_csv = create_csv_file_with_hex(dy_grid_2d, f"dy_grid_{original_rows}x{original_cols}_with_hex.csv", 
-                                         "DY", hex_bits, final_output_subdir)
-        combined_csv = create_combined_csv_file(dx_grid_2d, dy_grid_2d, 
-                                               f"combined_grid_{original_rows}x{original_cols}_with_hex.csv", 
-                                               hex_bits, final_output_subdir)
+        # Create GDC format text files with hex values
+        dx_gdc_with_hex = processor.values_to_gdc_format_with_hex(dx_values, 'dx', hex_bits)
+        dy_gdc_with_hex = processor.values_to_gdc_format_with_hex(dy_values, 'dy', hex_bits)
+        combined_gdc_with_hex = dx_gdc_with_hex + '\n' + dy_gdc_with_hex
         
-        # Create original format TXT file
-        original_content_txt = create_txt_file(content, f"original_data_{original_rows}x{original_cols}.txt", 
-                                              final_output_subdir)
+        # Create text files
+        dx_txt = create_txt_file(dx_gdc_with_hex, f"dx_grid_{original_rows}x{original_cols}_with_hex.txt", 
+                                final_output_subdir)
+        dy_txt = create_txt_file(dy_gdc_with_hex, f"dy_grid_{original_rows}x{original_cols}_with_hex.txt", 
+                                final_output_subdir)
+        combined_txt = create_txt_file(combined_gdc_with_hex, f"combined_grid_{original_rows}x{original_cols}_with_hex.txt", 
+                                      final_output_subdir)
         
-        all_output_files_for_zip.extend([dx_csv, dy_csv, combined_csv, original_content_txt])
+        all_output_files_for_zip.extend([dx_csv, dy_csv, combined_csv, dx_txt, dy_txt, combined_txt, original_content_txt])
 
         # Create visualizations
         dx_viz = None
@@ -360,14 +360,19 @@ def process_gdc_data(
         # Create zip file for download
         zip_for_download = create_zip_file(all_output_files_for_zip)
 
-        # Create sample hex conversion table for display
-        sample_conversions = []
-        for i in range(min(10, len(dx_values))):  # Show first 10 conversions as examples
+        # Create sample output for display
+        sample_output_lines = []
+        for i in range(min(10, len(dx_values))):  # Show first 10 lines as examples
             dx_dec = dx_values[i]
-            dy_dec = dy_values[i]
             dx_hex = processor.convert_to_hex(dx_dec, hex_bits)
+            sample_output_lines.append(f"yuv_gdc_grid_dx_0_{i} {dx_dec} {dx_hex}")
+        
+        for i in range(min(5, len(dy_values))):  # Show first 5 DY lines as examples
+            dy_dec = dy_values[i]
             dy_hex = processor.convert_to_hex(dy_dec, hex_bits)
-            sample_conversions.append(f"DX[{i}]: {dx_dec} → {dx_hex}, DY[{i}]: {dy_dec} → {dy_hex}")
+            sample_output_lines.append(f"yuv_gdc_grid_dy_0_{i} {dy_dec} {dy_hex}")
+
+        sample_output = "\n".join(sample_output_lines)
 
         # Create summary
         summary = f"""
@@ -388,12 +393,13 @@ def process_gdc_data(
 - Min: {np.min(dy_grid_2d)} | Max: {np.max(dy_grid_2d)}
 - Mean: {np.mean(dy_grid_2d):.2f} | Std: {np.std(dy_grid_2d):.2f}
 
-🔢 **Sample Hex Conversions:**
-{chr(10).join(sample_conversions[:5])}
+🔢 **Sample Output Format:**
+{sample_output}
 
 📁 **Generated Files:**
-- Individual CSV files: DX and DY grids with decimal and hex columns
-- Combined CSV file: Both grids with decimal and hex values
+- Individual TXT files: DX and DY grids in GDC format with hex values
+- Combined TXT file: Both grids in one file with hex values
+- CSV files: Alternative format with decimal and hex columns
 - Original TXT file: Copy of input data
 """
         if show_visualizations:
@@ -404,7 +410,7 @@ def process_gdc_data(
             summary += f"\n💾 **Saved to:** {final_output_subdir}"
 
         return (summary, 
-                "\n".join(sample_conversions), 
+                sample_output, 
                 zip_for_download, 
                 dx_viz, dy_viz, 
                 gr.update(visible=True))
@@ -505,13 +511,13 @@ def create_gradio_interface():
             with gr.Column(scale=1):
                 gr.Markdown("### ✨ **Conversion Results**")
                 
-                gr.Markdown("#### 🔢 **Sample Hex Conversions**")
+                gr.Markdown("#### 📝 **Sample Output Format**")
                 hex_output = gr.Textbox(
-                    label="Decimal → Hex Conversions (Sample)",
+                    label="GDC Format with Hex Values (Sample)",
                     lines=10,
                     show_copy_button=True,
                     interactive=False,
-                    placeholder="Conversion examples will appear here..."
+                    placeholder="Output format examples will appear here..."
                 )
         
         # Visualizations section
@@ -577,15 +583,21 @@ def create_gradio_interface():
         ---
         ### 📚 **Output Formats**
         
-        **🔸 Individual CSV Files**: Separate files for DX and DY grids with decimal and hex columns  
-        **🔸 Combined CSV File**: Both DX and DY grids in one file with decimal and hex values  
+        **🔸 Individual TXT Files**: Separate files for DX and DY grids in GDC format with hex values  
+        **🔸 Combined TXT File**: Both DX and DY grids in one file with hex values  
+        **🔸 CSV Files**: Alternative format with decimal and hex columns for spreadsheet use  
         **🔸 Original TXT File**: Copy of your input data for reference  
         **🔸 Visualizations**: Heatmap representations of the grid values  
         
-        ### 📊 **CSV Format Example**
+        ### 📝 **Output Format Example**
         ```
-        DX_Col0_Dec, DX_Col0_Hex, DX_Col1_Dec, DX_Col1_Hex, ...
-        1234,        0x04D2,      1235,        0x04D3,      ...
+        yuv_gdc_grid_dx_0_0 1234 0x04D2
+        yuv_gdc_grid_dx_0_1 1235 0x04D3
+        yuv_gdc_grid_dx_0_2 1236 0x04D4
+        ...
+        yuv_gdc_grid_dy_0_0 5678 0x162E
+        yuv_gdc_grid_dy_0_1 5679 0x162F
+        ...
         ```
         
         ### 🧩 **Expected Input Format**

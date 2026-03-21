@@ -246,6 +246,8 @@ class RemapGUI(tk.Tk):
         self._source_bgr: Optional[np.ndarray] = None    # current input image
         self._result_bgr: Optional[np.ndarray] = None    # last remapped result
         self._overlay_bgr: Optional[np.ndarray] = None   # result with grid lines
+        self._remapped_bgr: Optional[np.ndarray] = None  # before flip/rotate
+        self._transformed_bgr: Optional[np.ndarray] = None  # after flip/rotate
         self._dx_grid: Optional[np.ndarray] = None
         self._dy_grid: Optional[np.ndarray] = None
         self._processing = False
@@ -345,6 +347,16 @@ class RemapGUI(tk.Tk):
                     self._roi_w_var.set(roi["w"])
                 if "h" in roi:
                     self._roi_h_var.set(roi["h"])
+
+            # Flip & Rotate settings
+            if "flip_rotate" in self._defaults:
+                fr = self._defaults["flip_rotate"]
+                if "flip_h" in fr:
+                    self._flip_h_var.set(fr["flip_h"])
+                if "flip_v" in fr:
+                    self._flip_v_var.set(fr["flip_v"])
+                if "rotate" in fr:
+                    self._rotate_var.set(fr["rotate"])
         except Exception as e:
             print(f"Warning: Error applying loaded defaults: {e}")
 
@@ -694,6 +706,35 @@ class RemapGUI(tk.Tk):
                    command=self._reset_roi,
                    style="Save.TButton").pack(fill=tk.X, padx=p, pady=4)
 
+        # --- Section: Flip & Rotate -----------------------------------------
+        flip_frame = ttk.LabelFrame(inner, text="  Flip & Rotate  ")
+        flip_frame.grid(row=row, column=0, sticky="ew", padx=p, pady=2)
+        row += 1
+
+        # Flip options
+        flip_row = ttk.Frame(flip_frame)
+        flip_row.pack(fill=tk.X, padx=p, pady=2)
+
+        self._flip_h_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(flip_row, text="Flip H",
+                        variable=self._flip_h_var,
+                        command=self._schedule_live).pack(side=tk.LEFT, padx=(0, 8))
+
+        self._flip_v_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(flip_row, text="Flip V",
+                        variable=self._flip_v_var,
+                        command=self._schedule_live).pack(side=tk.LEFT)
+
+        # Rotation
+        rot_row = ttk.Frame(flip_frame)
+        rot_row.pack(fill=tk.X, padx=p, pady=2)
+        ttk.Label(rot_row, text="Rotate", width=8, anchor="w").pack(side=tk.LEFT)
+        self._rotate_var = tk.IntVar(value=0)
+        rot_cb = ttk.Combobox(rot_row, textvariable=self._rotate_var,
+                              values=[0, 90, 180, 270], state="readonly", width=8)
+        rot_cb.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        rot_cb.bind("<<ComboboxSelected>>", lambda _: self._schedule_live())
+
         # --- Section: Actions -----------------------------------------------
         act_frame = ttk.Frame(inner)
         act_frame.grid(row=row, column=0, sticky="ew", padx=p, pady=(p, 2))
@@ -727,12 +768,17 @@ class RemapGUI(tk.Tk):
         self._notebook.add(tab_img, text="  Images  ")
         self._build_images_tab(tab_img)
 
-        # Tab 2: Heatmaps
+        # Tab 2: Transform (Remapped vs Transformed)
+        tab_transform = ttk.Frame(self._notebook)
+        self._notebook.add(tab_transform, text="  Transform  ")
+        self._build_transform_tab(tab_transform)
+
+        # Tab 3: Heatmaps
         tab_heat = ttk.Frame(self._notebook)
         self._notebook.add(tab_heat, text="  Heatmaps  ")
         self._build_heatmaps_tab(tab_heat)
 
-        # Tab 3: Info
+        # Tab 4: Info
         tab_info = ttk.Frame(self._notebook)
         self._notebook.add(tab_info, text="  Info  ")
         self._build_info_tab(tab_info)
@@ -747,6 +793,18 @@ class RemapGUI(tk.Tk):
 
         self._canvas_out = ImageCanvas(parent, "Remapped")
         self._canvas_out.grid(row=0, column=1, sticky="nsew", padx=(2, 4), pady=4)
+
+    def _build_transform_tab(self, parent: ttk.Frame):
+        """Tab showing Remapped (before flip/rotate) vs Transformed (after)."""
+        parent.columnconfigure(0, weight=1)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        self._canvas_remapped = ImageCanvas(parent, "Remapped (Before Flip/Rotate)")
+        self._canvas_remapped.grid(row=0, column=0, sticky="nsew", padx=(4, 2), pady=4)
+
+        self._canvas_transformed = ImageCanvas(parent, "Transformed (After Flip/Rotate)")
+        self._canvas_transformed.grid(row=0, column=1, sticky="nsew", padx=(2, 4), pady=4)
 
     def _build_heatmaps_tab(self, parent: ttk.Frame):
         parent.columnconfigure(0, weight=1)
@@ -871,6 +929,12 @@ class RemapGUI(tk.Tk):
                 "y": self._roi_y_var.get(),
                 "w": self._roi_w_var.get(),
                 "h": self._roi_h_var.get(),
+            },
+            "flip_rotate": {
+                "flip_h": self._flip_h_var.get(),
+                "flip_v": self._flip_v_var.get(),
+                "rotate": self._rotate_var.get(),
+                "rotate_options": [0, 90, 180, 270],
             },
             "theme": {
                 "background": BG,
@@ -1008,6 +1072,9 @@ class RemapGUI(tk.Tk):
             "roi_y":          self._roi_y_var.get(),
             "roi_w":          self._roi_w_var.get(),
             "roi_h":          self._roi_h_var.get(),
+            "flip_h":         self._flip_h_var.get(),
+            "flip_v":         self._flip_v_var.get(),
+            "rotate":         self._rotate_var.get(),
         }
 
         self._start_progress()
@@ -1057,7 +1124,40 @@ class RemapGUI(tk.Tk):
                 if params["overlay"] else result
             )
 
-            # 5. Apply ROI operations
+            # Store remapped image before flip/rotate for Transform tab
+            remapped_before = overlay.copy()
+
+            # 5. Apply Flip and Rotation
+            flip_h = params.get("flip_h", False)
+            flip_v = params.get("flip_v", False)
+            rotate = params.get("rotate", 0)
+
+            if flip_h or flip_v:
+                flip_code = None
+                if flip_h and flip_v:
+                    flip_code = -1  # Flip both
+                elif flip_h:
+                    flip_code = 1   # Flip horizontal
+                else:
+                    flip_code = 0   # Flip vertical
+                result = cv2.flip(result, flip_code)
+                overlay = cv2.flip(overlay, flip_code)
+
+            if rotate != 0:
+                if rotate == 90:
+                    result = cv2.rotate(result, cv2.ROTATE_90_CLOCKWISE)
+                    overlay = cv2.rotate(overlay, cv2.ROTATE_90_CLOCKWISE)
+                elif rotate == 180:
+                    result = cv2.rotate(result, cv2.ROTATE_180)
+                    overlay = cv2.rotate(overlay, cv2.ROTATE_180)
+                elif rotate == 270:
+                    result = cv2.rotate(result, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    overlay = cv2.rotate(overlay, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+            # Store transformed image after flip/rotate (before ROI)
+            transformed_after = overlay.copy()
+
+            # 6. Apply ROI operations
             roi_info = None
             if params.get("roi_draw") or params.get("roi_crop"):
                 roi_x = int(params.get("roi_x", 100))
@@ -1101,6 +1201,15 @@ class RemapGUI(tk.Tk):
                 mag      = np.sqrt(dense_dx**2 + dense_dy**2)
                 mag_heat = _float_to_heatmap(mag)
 
+            # Build flip description
+            flip_desc = None
+            if flip_h and flip_v:
+                flip_desc = "Horizontal + Vertical"
+            elif flip_h:
+                flip_desc = "Horizontal"
+            elif flip_v:
+                flip_desc = "Vertical"
+
             info = {
                 "transform":     transform,
                 "grid":          f"{grid_rows}x{grid_cols}",
@@ -1114,13 +1223,16 @@ class RemapGUI(tk.Tk):
                 "dy_min":        float(dy_grid.min()),
                 "dy_max":        float(dy_grid.max()),
                 "mag_max":       float(np.sqrt(dx_grid**2 + dy_grid**2).max()),
+                "flip":          flip_desc,
+                "rotate":        rotate if rotate != 0 else None,
                 "roi":           roi_info,
             }
 
             # Schedule UI update on main thread
             self.after(0, self._on_pipeline_done,
                        result, overlay, dx_grid, dy_grid,
-                       dx_heat, dy_heat, mag_heat, info)
+                       dx_heat, dy_heat, mag_heat, info,
+                       remapped_before, transformed_after)
 
         except Exception as exc:
             self.after(0, self._on_pipeline_error, str(exc))
@@ -1164,6 +1276,8 @@ class RemapGUI(tk.Tk):
         dy_grid: np.ndarray,
         dx_heat, dy_heat, mag_heat,
         info: dict,
+        remapped_before: np.ndarray,
+        transformed_after: np.ndarray,
     ):
         self._result_bgr  = result
         self._overlay_bgr = overlay
@@ -1172,6 +1286,12 @@ class RemapGUI(tk.Tk):
 
         # Update images tab
         self._canvas_out.show(overlay)
+
+        # Update transform tab
+        self._remapped_bgr = remapped_before
+        self._transformed_bgr = transformed_after
+        self._canvas_remapped.show(remapped_before)
+        self._canvas_transformed.show(transformed_after)
 
         # Update heatmaps tab
         if dx_heat is not None:
@@ -1207,6 +1327,15 @@ class RemapGUI(tk.Tk):
             f"  Border mode     : {info['border']}",
             f"  Image size      : {info['size']}",
         ]
+
+        # Add Flip/Rotate info
+        if info.get("flip") or info.get("rotate"):
+            lines.append("")
+            lines.append("--- Post-Processing -------------------------------------")
+            if info.get("flip"):
+                lines.append(f"  Flip            : {info['flip']}")
+            if info.get("rotate"):
+                lines.append(f"  Rotation        : {info['rotate']}°")
 
         # Add ROI info if present
         if info.get("roi"):

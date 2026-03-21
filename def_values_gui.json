@@ -94,8 +94,8 @@
     "h": 240
   },
   "flip_rotate": {
-    "flip_h": true,
-    "flip_v": true,
+    "flip_h": false,
+    "flip_v": false,
     "rotate": 0,
     "rotate_options": [
       0,

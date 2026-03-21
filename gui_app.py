@@ -251,6 +251,11 @@ class RemapGUI(tk.Tk):
         self._dx_grid: Optional[np.ndarray] = None
         self._dy_grid: Optional[np.ndarray] = None
         self._processing = False
+
+        # Comparison tab state
+        self._cmp_result_a: Optional[np.ndarray] = None   # Method A final output
+        self._cmp_result_b: Optional[np.ndarray] = None   # Method B grid-folded output
+        self._cmp_diff: Optional[np.ndarray] = None       # amplified residual
         self._live_timer: Optional[str] = None           # after() handle
 
         # --- Load defaults from JSON ----------------------------------------
@@ -782,6 +787,11 @@ class RemapGUI(tk.Tk):
         tab_info = ttk.Frame(self._notebook)
         self._notebook.add(tab_info, text="  Info  ")
         self._build_info_tab(tab_info)
+
+        # Tab 5: Comparison (Method A vs Method B grid-folded)
+        tab_cmp = ttk.Frame(self._notebook)
+        self._notebook.add(tab_cmp, text="  Comparison  ")
+        self._build_comparison_tab(tab_cmp)
 
     def _build_images_tab(self, parent: ttk.Frame):
         parent.columnconfigure(0, weight=1)
@@ -1500,6 +1510,579 @@ class RemapGUI(tk.Tk):
             self.after(0, self._stop_progress)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    # ======================================================================
+    # Comparison Tab — Method A (Sequential) vs Method B (Grid-Folded)
+    # ======================================================================
+
+    def _build_comparison_tab(self, parent: ttk.Frame):
+        """
+        Tab layout
+        ----------
+        Row 0 : Controls strip  (Run button, diff-amp slider, colormap)
+        Row 1 : Theory note banner
+        Row 2 : Three ImageCanvases — Method A | Method B Grid | Residual A-B
+        Row 3 : Statistics text
+        """
+        parent.rowconfigure(2, weight=1)
+        parent.columnconfigure(0, weight=1)
+
+        # ── Row 0: Controls ──────────────────────────────────────────────
+        ctrl = ttk.Frame(parent)
+        ctrl.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 2))
+
+        ttk.Button(
+            ctrl, text="▶  Run Comparison",
+            command=self._run_comparison,
+            style="Apply.TButton",
+        ).pack(side=tk.LEFT, padx=(0, 12))
+
+        ttk.Label(ctrl, text="Diff amp ×", font=FONT_BODY).pack(side=tk.LEFT)
+        self._diff_amp_var = tk.DoubleVar(value=5.0)
+        self._diff_amp_scale = ttk.Scale(
+            ctrl, orient=tk.HORIZONTAL, from_=1.0, to=30.0,
+            variable=self._diff_amp_var, length=120,
+            command=lambda _: self._refresh_diff_display(),
+        )
+        self._diff_amp_scale.pack(side=tk.LEFT, padx=4)
+        self._diff_amp_lbl = ttk.Label(ctrl, text="5.0", width=4, font=FONT_MONO)
+        self._diff_amp_lbl.pack(side=tk.LEFT, padx=(0, 12))
+
+        ttk.Label(ctrl, text="Colormap", font=FONT_BODY).pack(side=tk.LEFT)
+        self._diff_cmap_var = tk.StringVar(value="hot")
+        cmap_cb = ttk.Combobox(
+            ctrl, textvariable=self._diff_cmap_var,
+            values=["hot", "jet", "plasma", "inferno", "gray"],
+            state="readonly", width=9,
+        )
+        cmap_cb.pack(side=tk.LEFT, padx=4)
+        cmap_cb.bind("<<ComboboxSelected>>", lambda _: self._refresh_diff_display())
+
+        # ── Row 1: Theory note ────────────────────────────────────────────
+        note_frame = ttk.Frame(parent, style="TFrame")
+        note_frame.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 4))
+
+        note_text = (
+            "Theory test — Method A: cv2.remap → flip/rotate post-process.  "
+            "Method B: fold flip/rotate into sparse dx/dy grid → re-interpolate → "
+            "single cv2.remap.  "
+            "Residual shows interpolation error introduced by grid re-sampling."
+        )
+        ttk.Label(
+            note_frame, text=note_text, font=("Segoe UI", 8, "italic"),
+            foreground=FG2, wraplength=900, anchor="w",
+        ).pack(fill=tk.X)
+
+        # ── Row 2: Three image canvases ───────────────────────────────────
+        img_frame = ttk.Frame(parent)
+        img_frame.grid(row=2, column=0, sticky="nsew", padx=6, pady=2)
+        img_frame.columnconfigure(0, weight=1)
+        img_frame.columnconfigure(1, weight=1)
+        img_frame.columnconfigure(2, weight=1)
+        img_frame.rowconfigure(0, weight=1)
+
+        self._canvas_cmp_a = ImageCanvas(
+            img_frame,
+            "Method A — Sequential\n(Remap → flip/rotate)",
+        )
+        self._canvas_cmp_a.grid(row=0, column=0, sticky="nsew", padx=(0, 2), pady=2)
+
+        self._canvas_cmp_b = ImageCanvas(
+            img_frame,
+            "Method B — Grid-Folded\n(fold into grid → re-interp → Remap)",
+        )
+        self._canvas_cmp_b.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
+
+        self._canvas_diff = ImageCanvas(
+            img_frame,
+            "Residual  |A − B|  (amplified)",
+        )
+        self._canvas_diff.grid(row=0, column=2, sticky="nsew", padx=(2, 0), pady=2)
+
+        # ── Row 3: Statistics ─────────────────────────────────────────────
+        stats_outer = ttk.LabelFrame(parent, text="  Comparison Statistics  ")
+        stats_outer.grid(row=3, column=0, sticky="ew", padx=6, pady=(2, 6))
+
+        self._cmp_stats_text = tk.Text(
+            stats_outer,
+            bg="#0d0d1a", fg=FG, font=FONT_MONO,
+            relief=tk.FLAT, state=tk.DISABLED,
+            height=6, wrap=tk.NONE,
+            selectbackground=SELECT_BG, selectforeground=SELECT_FG,
+        )
+        sb = ttk.Scrollbar(stats_outer, command=self._cmp_stats_text.yview)
+        self._cmp_stats_text.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._cmp_stats_text.pack(fill=tk.X, padx=4, pady=4)
+
+    # ------------------------------------------------------------------
+    # Comparison — trigger
+    # ------------------------------------------------------------------
+    def _run_comparison(self):
+        """Validate state, then run comparison in background thread."""
+        if self._processing:
+            self._set_status("Main pipeline is running — wait and retry.", WARN)
+            return
+        if self._source_bgr is None:
+            self._set_status("Load an image first (Input Image section).", WARN)
+            return
+        if self._dx_grid is None or self._dy_grid is None:
+            self._set_status("Run 'Apply Remap' first to generate the grid.", WARN)
+            return
+
+        flip_h  = self._flip_h_var.get()
+        flip_v  = self._flip_v_var.get()
+        rotate  = self._rotate_var.get()
+        if not flip_h and not flip_v and rotate == 0:
+            # No post-process active — show informational diff (should be zero)
+            self._set_status(
+                "No flip/rotate active — both methods are identical; diff will be zero.",
+                WARN,
+            )
+
+        params = {
+            # Grid / interpolation (same as main pipeline)
+            "grid_rows":   self._grid_rows_var.get(),
+            "grid_cols":   self._grid_cols_var.get(),
+            "grid_interp": self._grid_interp_var.get(),
+            "interp":      self._interp_var.get(),
+            "border":      self._border_var.get(),
+            # Post-process ops to fold
+            "flip_h":  flip_h,
+            "flip_v":  flip_v,
+            "rotate":  rotate,
+            # ROI (applied identically to both outputs for a fair comparison)
+            "roi_draw": self._roi_draw_var.get(),
+            "roi_crop": self._roi_crop_var.get(),
+            "roi_x":    self._roi_x_var.get(),
+            "roi_y":    self._roi_y_var.get(),
+            "roi_w":    self._roi_w_var.get(),
+            "roi_h":    self._roi_h_var.get(),
+        }
+
+        self._start_progress()
+        self._set_status("Running comparison …", ACCENT)
+
+        threading.Thread(
+            target=self._run_comparison_thread,
+            args=(
+                self._source_bgr.copy(),
+                self._dx_grid.copy(),
+                self._dy_grid.copy(),
+                params,
+            ),
+            daemon=True,
+        ).start()
+
+    # ------------------------------------------------------------------
+    # Comparison — background worker
+    # ------------------------------------------------------------------
+    def _run_comparison_thread(
+        self,
+        image: np.ndarray,
+        dx_grid: np.ndarray,
+        dy_grid: np.ndarray,
+        params: dict,
+    ):
+        """
+        Compute Method A and Method B, diff, and statistics.
+
+        Method A — Sequential
+        ─────────────────────
+          1. Build dense maps from dx_grid / dy_grid (same as main pipeline).
+          2. cv2.remap → remapped.
+          3. Apply flip / rotate → result_a.
+          4. Apply ROI crop (if enabled).
+
+        Method B — Grid-Folded
+        ──────────────────────
+          1. Build same dense maps (step 1 of Method A).
+          2. Mathematically fold flip/rotate into the DENSE maps
+             → folded_map_x, folded_map_y  (shape may change for 90°/270°).
+          3. SAMPLE folded dense maps at grid node positions
+             → sparse dx_grid_B, dy_grid_B.
+          4. Re-interpolate sparse B grid → dense maps B  (introduces error).
+          5. cv2.remap with maps B → result_b (NO post-process).
+          6. Apply same ROI crop (if enabled).
+
+        The residual |A − B| reveals the error from grid re-sampling.
+        """
+        try:
+            H, W     = image.shape[:2]
+            gR       = params["grid_rows"]
+            gC       = params["grid_cols"]
+            g_interp = params["grid_interp"]
+            px_interp = params["interp"]
+            border   = params["border"]
+            flip_h   = params["flip_h"]
+            flip_v   = params["flip_v"]
+            rotate   = params["rotate"]
+
+            engine = GridRemapEngine()
+            t0 = time.perf_counter()
+
+            # ── Shared step: build dense maps from the given sparse grid ──
+            map_x, map_y = engine.build_remap_maps(
+                (H, W), dx_grid, dy_grid, grid_interp=g_interp
+            )
+
+            # ── Method A ──────────────────────────────────────────────────
+            remapped_a = engine.apply_remap(
+                image, map_x, map_y,
+                interpolation=px_interp, border_mode=border,
+            )
+            result_a = self._apply_post_process(remapped_a, flip_h, flip_v, rotate)
+
+            # ── Method B ──────────────────────────────────────────────────
+            # Step B-1: fold flip/rotate into the dense maps
+            folded_mx, folded_my, out_H, out_W = self._apply_geometric_fold(
+                map_x, map_y, H, W, flip_h, flip_v, rotate
+            )
+
+            # Step B-2: sample folded dense maps at uniformly-spaced grid nodes
+            #           in the output space → sparse displacement grid B
+            dx_grid_b, dy_grid_b = self._sample_grid_from_dense(
+                folded_mx, folded_my, out_H, out_W, gR, gC
+            )
+
+            # Step B-3: re-interpolate sparse B grid → dense maps B
+            map_x_b, map_y_b = engine.build_remap_maps(
+                (out_H, out_W), dx_grid_b, dy_grid_b, grid_interp=g_interp
+            )
+
+            # Step B-4: remap with maps B (no post-process)
+            result_b = engine.apply_remap(
+                image, map_x_b, map_y_b,
+                interpolation=px_interp, border_mode=border,
+            )
+
+            t1 = time.perf_counter()
+
+            # ── ROI — applied identically to both for a fair comparison ──
+            result_a, result_b = self._apply_roi_to_pair(
+                result_a, result_b, params
+            )
+
+            # ── Resize B to match A if rotation changed dimensions ────────
+            if result_b.shape[:2] != result_a.shape[:2]:
+                result_b = cv2.resize(
+                    result_b,
+                    (result_a.shape[1], result_a.shape[0]),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+
+            # ── Compute residual and statistics ───────────────────────────
+            diff_f  = result_a.astype(np.float32) - result_b.astype(np.float32)
+            abs_diff = np.abs(diff_f)
+
+            rmse   = float(np.sqrt(np.mean(diff_f ** 2)))
+            max_err = float(abs_diff.max())
+            mean_err = float(abs_diff.mean())
+            psnr   = (
+                float(20 * np.log10(255.0 / rmse)) if rmse > 1e-9 else float("inf")
+            )
+            identical_pct = float(
+                np.sum(abs_diff.max(axis=2) == 0) / (result_a.shape[0] * result_a.shape[1]) * 100
+            )
+
+            ch_rmse: dict[str, float] = {}
+            for idx, ch_name in enumerate(["B", "G", "R"]):
+                ch_rmse[ch_name] = float(
+                    np.sqrt(np.mean(diff_f[:, :, idx] ** 2))
+                )
+
+            folds = []
+            if flip_h:
+                folds.append("Flip-H")
+            if flip_v:
+                folds.append("Flip-V")
+            if rotate:
+                folds.append(f"Rotate {rotate}°")
+
+            stats = {
+                "rmse":          rmse,
+                "max_err":       max_err,
+                "mean_err":      mean_err,
+                "psnr_db":       psnr,
+                "identical_pct": identical_pct,
+                "ch_rmse":       ch_rmse,
+                "elapsed_ms":    (t1 - t0) * 1000,
+                "folds":         folds if folds else ["(none — identity comparison)"],
+                "grid":          f"{gR}×{gC}",
+                "grid_interp":   g_interp,
+                "out_size":      f"{result_a.shape[1]}×{result_a.shape[0]}",
+                "dx_b_range":    (float(dx_grid_b.min()), float(dx_grid_b.max())),
+                "dy_b_range":    (float(dy_grid_b.min()), float(dy_grid_b.max())),
+            }
+
+            self.after(
+                0, self._on_comparison_done,
+                result_a, result_b, diff_f, stats,
+            )
+
+        except Exception as exc:
+            self.after(0, self._on_pipeline_error, f"Comparison: {exc}")
+
+    # ------------------------------------------------------------------
+    # Comparison — helpers (static)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _apply_post_process(
+        image: np.ndarray,
+        flip_h: bool,
+        flip_v: bool,
+        rotate: int,
+    ) -> np.ndarray:
+        """Apply sequential flip / rotate exactly as the main pipeline does."""
+        result = image.copy()
+        if flip_h and flip_v:
+            result = cv2.flip(result, -1)
+        elif flip_h:
+            result = cv2.flip(result, 1)
+        elif flip_v:
+            result = cv2.flip(result, 0)
+        if rotate == 90:
+            result = cv2.rotate(result, cv2.ROTATE_90_CLOCKWISE)
+        elif rotate == 180:
+            result = cv2.rotate(result, cv2.ROTATE_180)
+        elif rotate == 270:
+            result = cv2.rotate(result, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return result
+
+    @staticmethod
+    def _apply_geometric_fold(
+        map_x: np.ndarray,
+        map_y: np.ndarray,
+        H: int,
+        W: int,
+        flip_h: bool,
+        flip_v: bool,
+        rotate: int,
+    ):
+        """
+        Fold flip/rotate post-processing into the dense remap maps.
+
+        For a post-process operation T: output[r,c] = remapped[T(r,c)]
+        The folded map satisfies: new_map[r,c] = map[T(r,c)]
+        so that a single cv2.remap(src, new_map_x, new_map_y) equals T(cv2.remap(src, map_x, map_y)).
+
+        Fold order mirrors the pipeline: flip first, then rotate.
+
+        Returns
+        -------
+        folded_map_x, folded_map_y : float32 ndarray
+            Folded maps (output shape may differ from H×W for 90°/270° rotations).
+        out_H, out_W : int
+            Output dimensions after folding.
+
+        Reference derivation for each op
+        ----------------------------------
+        Flip-H:  output[r,c] = in[r, W-1-c]  → new_map[r,c] = map[r, W-1-c]
+                              → m[:, ::-1]
+        Flip-V:  output[r,c] = in[H-1-r, c]  → new_map[r,c] = map[H-1-r, c]
+                              → m[::-1, :]
+        Rot-90CW: output[r,c] = in[H-1-c, r] (out shape W×H)
+                              → new_map[r,c] = map[H-1-c, r]
+                              → m[::-1, :].T
+        Rot-180: output[r,c] = in[H-1-r, W-1-c]
+                              → m[::-1, ::-1]
+        Rot-270CW: output[r,c] = in[c, W-1-r] (out shape W×H)
+                              → new_map[r,c] = map[c, W-1-r]
+                              → m[:, ::-1].T
+        """
+        m_x = map_x.copy()
+        m_y = map_y.copy()
+        out_H, out_W = H, W
+
+        # ── Fold flips ────────────────────────────────────────────────────
+        if flip_h and flip_v:
+            m_x = m_x[::-1, ::-1]
+            m_y = m_y[::-1, ::-1]
+        elif flip_h:
+            m_x = m_x[:, ::-1]
+            m_y = m_y[:, ::-1]
+        elif flip_v:
+            m_x = m_x[::-1, :]
+            m_y = m_y[::-1, :]
+
+        # ── Fold rotation ─────────────────────────────────────────────────
+        if rotate == 90:
+            m_x = np.ascontiguousarray(m_x[::-1, :].T)   # shape (W, H)
+            m_y = np.ascontiguousarray(m_y[::-1, :].T)
+            out_H, out_W = W, H
+        elif rotate == 180:
+            m_x = np.ascontiguousarray(m_x[::-1, ::-1])
+            m_y = np.ascontiguousarray(m_y[::-1, ::-1])
+        elif rotate == 270:
+            m_x = np.ascontiguousarray(m_x[:, ::-1].T)   # shape (W, H)
+            m_y = np.ascontiguousarray(m_y[:, ::-1].T)
+            out_H, out_W = W, H
+
+        return m_x.astype(np.float32), m_y.astype(np.float32), out_H, out_W
+
+    @staticmethod
+    def _sample_grid_from_dense(
+        folded_map_x: np.ndarray,
+        folded_map_y: np.ndarray,
+        out_H: int,
+        out_W: int,
+        grid_rows: int,
+        grid_cols: int,
+    ):
+        """
+        Sample the folded dense maps at uniformly-spaced grid node positions
+        in the output space to obtain a sparse (grid_rows × grid_cols) grid B.
+
+        This is the step that introduces approximation error: the full
+        information in the dense maps is compressed back to a sparse grid,
+        and subsequent re-interpolation can only reconstruct a smoothed version.
+
+        Returns
+        -------
+        dx_grid_b, dy_grid_b : float32 ndarray, shape (grid_rows, grid_cols)
+        """
+        # Grid node positions in the output image
+        y_nodes = np.linspace(0, out_H - 1, grid_rows).astype(int)
+        x_nodes = np.linspace(0, out_W - 1, grid_cols).astype(int)
+
+        # Meshgrid of node indices for vectorised sampling
+        gy, gx = np.meshgrid(y_nodes, x_nodes, indexing="ij")  # (R, C)
+
+        # Clamp to valid range (safety for edge nodes)
+        gy_c = np.clip(gy, 0, out_H - 1)
+        gx_c = np.clip(gx, 0, out_W - 1)
+
+        # Sample folded maps at node positions
+        sampled_mx = folded_map_x[gy_c, gx_c].astype(np.float32)
+        sampled_my = folded_map_y[gy_c, gx_c].astype(np.float32)
+
+        # Convert absolute source coords → displacements relative to node pos
+        dx_grid_b = sampled_mx - gx.astype(np.float32)
+        dy_grid_b = sampled_my - gy.astype(np.float32)
+
+        return dx_grid_b, dy_grid_b
+
+    @staticmethod
+    def _apply_roi_to_pair(
+        result_a: np.ndarray,
+        result_b: np.ndarray,
+        params: dict,
+    ):
+        """Apply the same ROI crop to both images (if enabled)."""
+        if not params.get("roi_crop"):
+            return result_a, result_b
+
+        H_a, W_a = result_a.shape[:2]
+        rx = int(max(0, min(params.get("roi_x", 0), W_a - 1)))
+        ry = int(max(0, min(params.get("roi_y", 0), H_a - 1)))
+        rw = int(max(1, min(params.get("roi_w", W_a), W_a - rx)))
+        rh = int(max(1, min(params.get("roi_h", H_a), H_a - ry)))
+
+        return (
+            result_a[ry : ry + rh, rx : rx + rw],
+            result_b[ry : ry + rh, rx : rx + rw],
+        )
+
+    # ------------------------------------------------------------------
+    # Comparison — receive results on main thread
+    # ------------------------------------------------------------------
+    def _on_comparison_done(
+        self,
+        result_a: np.ndarray,
+        result_b: np.ndarray,
+        diff_f: np.ndarray,
+        stats: dict,
+    ):
+        self._cmp_result_a = result_a
+        self._cmp_result_b = result_b
+        self._cmp_diff     = diff_f
+
+        self._canvas_cmp_a.show(result_a)
+        self._canvas_cmp_b.show(result_b)
+        self._refresh_diff_display()
+        self._update_comparison_stats(stats)
+
+        self._set_status(
+            f"Comparison done — RMSE: {stats['rmse']:.2f}  "
+            f"Max err: {stats['max_err']:.1f}  "
+            f"PSNR: {stats['psnr_db']:.1f} dB  "
+            f"Identical px: {stats['identical_pct']:.1f}%  "
+            f"({stats['elapsed_ms']:.0f} ms)",
+            OK,
+        )
+        self._stop_progress()
+
+    def _refresh_diff_display(self):
+        """Re-render the diff canvas whenever amplification or colormap changes."""
+        if self._cmp_diff is None:
+            return
+
+        amp  = self._diff_amp_var.get()
+        cmap_name = self._diff_cmap_var.get()
+        self._diff_amp_lbl.config(text=f"{amp:.1f}")
+
+        _cmap_map = {
+            "hot":     cv2.COLORMAP_HOT,
+            "jet":     cv2.COLORMAP_JET,
+            "plasma":  cv2.COLORMAP_PLASMA,
+            "inferno": cv2.COLORMAP_INFERNO,
+            "gray":    cv2.COLORMAP_BONE,
+        }
+        cmap_cv = _cmap_map.get(cmap_name, cv2.COLORMAP_HOT)
+
+        # Amplify absolute diff, collapse to luminance, colourise
+        abs_diff = np.abs(self._cmp_diff)
+        # Per-pixel max across channels as a single 2-D magnitude
+        magnitude = abs_diff.max(axis=2)
+        scaled = np.clip(magnitude * amp, 0, 255).astype(np.uint8)
+        diff_vis = cv2.applyColorMap(scaled, cmap_cv)
+        self._canvas_diff.show(diff_vis)
+
+    def _update_comparison_stats(self, stats: dict):
+        """Write statistics into the comparison stats text widget."""
+        folds_str = ", ".join(stats["folds"])
+        psnr_str  = (
+            f"{stats['psnr_db']:.2f} dB"
+            if stats["psnr_db"] != float("inf")
+            else "∞  (identical)"
+        )
+        ch = stats["ch_rmse"]
+
+        lines = [
+            "─── Overall Error ───────────────────────────────────────────",
+            f"  RMSE            : {stats['rmse']:.4f} px",
+            f"  Max error       : {stats['max_err']:.2f} px",
+            f"  Mean error      : {stats['mean_err']:.4f} px",
+            f"  PSNR            : {psnr_str}",
+            f"  Identical px    : {stats['identical_pct']:.2f} %",
+            "",
+            "─── Per-Channel RMSE ────────────────────────────────────────",
+            f"  Blue            : {ch['B']:.4f}",
+            f"  Green           : {ch['G']:.4f}",
+            f"  Red             : {ch['R']:.4f}",
+            "",
+            "─── Grid B Statistics ───────────────────────────────────────",
+            f"  Grid            : {stats['grid']} nodes",
+            f"  Grid interp     : {stats['grid_interp']}",
+            f"  dX_B range      : {stats['dx_b_range'][0]:.2f} … {stats['dx_b_range'][1]:.2f} px",
+            f"  dY_B range      : {stats['dy_b_range'][0]:.2f} … {stats['dy_b_range'][1]:.2f} px",
+            f"  Output size     : {stats['out_size']}",
+            "",
+            "─── Comparison Config ───────────────────────────────────────",
+            f"  Transforms folded : {folds_str}",
+            f"  Elapsed           : {stats['elapsed_ms']:.1f} ms",
+            "",
+            "─── Interpretation ──────────────────────────────────────────",
+            "  RMSE = 0, PSNR = ∞  →  grid-folded is pixel-perfect",
+            "  RMSE > 0            →  error from grid re-sampling / re-interp",
+            "  Higher grid density  →  lower error (test with larger grid)",
+        ]
+
+        text = "\n".join(lines)
+        self._cmp_stats_text.config(state=tk.NORMAL)
+        self._cmp_stats_text.delete("1.0", tk.END)
+        self._cmp_stats_text.insert(tk.END, text)
+        self._cmp_stats_text.config(state=tk.DISABLED)
 
 
 # ---------------------------------------------------------------------------

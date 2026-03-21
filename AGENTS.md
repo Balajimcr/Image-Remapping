@@ -1,397 +1,266 @@
-# Image Remapping Suite - Agent Guide
+# Fixed Grid Image Remapping
 
-A comprehensive, modular toolkit for geometric image transformations, lens distortion simulation, and GDC (Geometric Distortion Correction) grid processing.
-
-**Version:** 2.0.0  
-**Author:** Balaji R  
-**License:** MIT  
-**Python Required:** 3.8+
+> **Project type**: Computer Vision / Image Processing  
+> **Language**: Python 3.13+  
+> **License**: MIT  
+> **Author**: Balaji R
 
 ---
 
 ## Project Overview
 
-This project provides professional-grade tools for:
+This project implements **Fixed Grid Image Remapping** — a computer vision technique that applies sparse displacement grids to deform images using OpenCV's `cv2.remap`. The core algorithm:
 
-1. **Lens Distortion Simulation & Correction**: Brown-Conrady model implementation with radial (K1, K2, K3) and tangential (P1, P2) distortion coefficients
-2. **GDC Grid Processing**: Advanced bicubic interpolation of geometric distortion correction grids for hardware implementation
-3. **Geometric Transformations**: Affine, projective, and polynomial transformations
-4. **Quality Assessment**: PSNR, SSIM, correlation, and geometric error metrics
-5. **Hardware Integration**: Export to FPGA/ISP-ready formats
+1. Defines a sparse grid of displacement vectors (dx, dy) at control points
+2. Interpolates the sparse grid to full image resolution using bicubic splines (via SciPy)
+3. Builds inverse remap maps for `cv2.remap`
+4. Applies the transformation with configurable interpolation and border modes
+
+**Use cases**: Camera distortion correction, lens simulation, fisheye effects, artistic image warping, ISP validation, and geometric calibration workflows.
+
+---
+
+## Technology Stack
+
+| Component | Purpose |
+|-----------|---------|
+| **Python 3.13+** | Core language (uses `from __future__ import annotations`) |
+| **OpenCV (cv2)** | Image I/O, `cv2.remap`, visualization primitives |
+| **NumPy** | Array operations, meshgrids, numerical computing |
+| **SciPy** | Grid interpolation (`RectBivariateSpline`, `RegularGridInterpolator`) |
+| **Matplotlib** | Comparison figures, heatmap visualizations (CLI mode) |
+| **Pillow (PIL)** | Tkinter image display support (GUI mode) |
+| **Tkinter** | Desktop GUI framework |
 
 ---
 
 ## Project Structure
 
 ```
-image_remapping_suite/
-├── main.py                           # Application entry point (from project root)
-├── Readme.md                         # Main documentation
-├── requirements.txt                  # Python dependencies
-│
-├── image_remapping/                  # Main package directory
-│   ├── main.py                       # Launcher with CLI args (--interface main/gdc/integrated)
-│   ├── Readme.md                     # Package-level documentation
-│   ├── requirements.txt              # Package dependencies
-│   ├── Test.py                       # Quick test script
-│   │
-│   ├── config/
-│   │   └── settings.py               # Global configuration, defaults, validation ranges
-│   │
-│   ├── core/                         # Core transformation engine
-│   │   ├── remapping_engine.py       # Generic remapping operations using OpenCV
-│   │   └── transform_models.py       # Affine, projective, radial distortion transforms
-│   │
-│   ├── lens_distortion/              # Lens distortion module
-│   │   ├── simulator.py              # Brown-Conrady distortion simulation
-│   │   └── corrector.py              # Correction algorithms (iterative, analytical, polynomial)
-│   │
-│   ├── data_io/                      # Data I/O operations
-│   │   ├── exporters.py              # CSV, GDC, JSON, XML export functions
-│   │   └── image_utils.py            # Image loading/saving utilities
-│   │
-│   ├── visualization/                # Visualization components
-│   │   └── visualizer.py             # Grid visualization, heatmaps, comparison plots
-│   │
-│   ├── application/                  # Application orchestration
-│   │   └── processor.py              # Main processor with GDCGridProcessor class
-│   │
-│   ├── interfaces/                   # Web interfaces (Gradio)
-│   │   ├── gradio_main.py            # Main lens distortion interface (3-tab design)
-│   │   └── gradio_gdc.py             # GDC grid processing interface
-│   │
-│   ├── utils/                        # Utility modules
-│   │   ├── math_helpers.py           # Mathematical utility functions
-│   │   ├── gdc_grid.py               # GDC grid utilities
-│   │   ├── gdc_hex_converter.py      # Hex conversion utilities
-│   │   └── distortion_visualizer.py  # Distortion visualization tools
-│   │
-│   ├── tests/                        # Testing modules
-│   │   └── standalone_test_console.py # Interactive test console
-│   │
-│   ├── docs/                         # Documentation
-│   │   ├── integration_guide.md      # GDC integration examples and API guide
-│   │   └── Project Structure.pdf     # Architecture documentation
-│   │
-│   ├── Data/                         # Sample data
-│   │   ├── gdc_grid.txt              # Sample GDC grid file
-│   │   └── gdc_grid_data_7x9_Grid.csv # Sample grid data
-│   │
-│   ├── debug/                        # Debug output images
-│   └── debug_images/                 # Additional debug images
-│
-└── scripts/
-    ├── launch.bat                    # Main launcher with interactive menu
-    ├── launch-main.bat               # Quick launch: Main Lens Distortion
-    ├── launch-gdc.bat                # Quick launch: GDC Grid Processing
-    └── launch-integrated.bat         # Quick launch: Integrated Interface
-    
-└── legacy/                         # Legacy standalone GDC files (optional)
-    └── gdc_*.py files
+Image-Remapping/
+├── grid_engine.py          # Core remapping engine + distortion presets
+├── sample_images.py        # Synthetic test pattern generators
+├── main.py                 # CLI application entry point
+├── gui_app.py              # Tkinter GUI application
+├── files/                  # Sample outputs and reference images
+├── output/                 # Default output directory for processed images
+└── __pycache__/            # Python bytecode cache
 ```
+
+### Module Breakdown
+
+#### `grid_engine.py` (~450 lines)
+- **`GridRemapEngine`** — Core class with three main methods:
+  - `build_remap_maps()` — Interpolates sparse displacement grid to dense per-pixel maps
+  - `apply_remap()` — Applies `cv2.remap` with specified interpolation/border modes
+  - `overlay_grid()` — Draws deformed grid lines for visual verification
+- **`DistortionPresets`** — Factory class providing preset displacement grids:
+  - `barrel` / `pincushion` — Radial distortion (k1, k2 coefficients)
+  - `swirl` — Vortex rotation effect
+  - `wave` — Sinusoidal displacement
+  - `fisheye` — Equidistant fisheye projection
+  - `pinhole_correction` — Camera model distortion correction
+  - `identity` — Pass-through (zero displacement)
+
+#### `sample_images.py` (~275 lines)
+- **`SampleImageGenerator`** — Static methods for synthetic test patterns:
+  - `checkerboard` — Classic calibration pattern
+  - `grid_lines` — Uniform grid for distortion visualization
+  - `concentric_circles` — Radial symmetry test
+  - `color_gradient_chart` — 4-corner color gradient for interpolation testing
+  - `dot_grid` — Point tracking pattern
+  - `radial_spokes` — Angular distortion test
+  - `resolution_chart` — Combined calibration chart
+- **`SAMPLE_IMAGES`** — Dictionary mapping names to generator callables
+
+#### `main.py` (~510 lines)
+- CLI argument parsing with `argparse`
+- Pipeline orchestration: `load_or_generate_image()` → `build_grid()` → `run_pipeline()`
+- Batch processing mode (`--batch`) — runs all transforms × all samples
+- Visualization: side-by-side comparison figures with displacement heatmaps
+
+#### `gui_app.py` (~1020 lines)
+- **`RemapGUI`** — Main Tkinter application class
+- **`LabelledScale`** — Custom slider widget with numeric readout
+- **`ImageCanvas`** — Auto-scaling image display component
+- Three-tab notebook: Images | Heatmaps | Info
+- Live preview with debounced updates (300ms)
+- Background threading for non-blocking processing
 
 ---
 
-## Technology Stack
+## Running the Application
 
-### Core Dependencies
-| Package | Version | Purpose |
-|---------|---------|---------|
-| numpy | >=1.21.0 | Numerical computing |
-| opencv-python | >=4.5.0 | Image processing |
-| scipy | >=1.7.0 | Interpolation, optimization |
-| pillow | >=8.0.0 | Image I/O |
+### Prerequisites
 
-### Web Interface
-| Package | Version | Purpose |
-|---------|---------|---------|
-| gradio | >=4.0.0 | Web UI framework |
-
-### Visualization & Analysis
-| Package | Version | Purpose |
-|---------|---------|---------|
-| matplotlib | >=3.5.0 | Plotting and visualization |
-| seaborn | >=0.11.0 | Statistical visualization |
-| pandas | >=1.3.0 | Data processing |
-| scikit-image | >=0.19.0 | Advanced image processing |
-
----
-
-## Build and Run Commands
-
-### Installation
 ```bash
-# From project root
-pip install -r requirements.txt
+pip install opencv-python numpy scipy matplotlib Pillow
 ```
 
-### Running the Application
+### CLI Mode
 
-#### Main Lens Distortion Interface
 ```bash
-cd image_remapping
-python main.py
-# OR
-python main.py --interface main
+# Basic usage — barrel distortion on checkerboard
+python main.py --transform barrel --sample checkerboard --show
+
+# Process external image
+python main.py --transform swirl --input photo.jpg --output result.png
+
+# Batch mode — all transforms × all samples
+python main.py --batch
+
+# Custom parameters
+python main.py --transform wave --grid 15 15 --amplitude 25 --grid-overlay --show
 ```
 
-#### GDC Grid Processing Interface
+**Key CLI flags:**
+- `--transform` — `barrel` | `pincushion` | `swirl` | `wave` | `fisheye` | `correction` | `identity`
+- `--sample` — `checkerboard` | `grid_lines` | `circles` | `color_chart` | `dot_grid` | `radial_spokes` | `resolution_chart`
+- `--grid ROWS COLS` — Sparse grid dimensions (default: 11×11)
+- `--interp` — Pixel interpolation: `nearest` | `linear` | `cubic` | `lanczos`
+- `--grid-interp` — Grid upsampling: `bicubic` | `linear`
+- `--k1`, `--strength`, `--amplitude` — Transform-specific parameters
+
+### GUI Mode
+
 ```bash
-cd image_remapping
-python main.py --interface gdc
+# Launch GUI with default sample
+python gui_app.py
+
+# Launch with external image
+python gui_app.py --image path/to/photo.jpg
 ```
 
-#### Integrated Interface (both capabilities)
-```bash
-cd image_remapping
-python main.py --interface integrated
-```
-
-#### Standalone GDC Interface (alternative)
-```bash
-cd image_remapping
-python gdc_main.py
-```
-
-### CLI Options
-```bash
-python main.py --help          # Show all options
-python main.py --features      # Show feature overview
-python main.py --check         # Check dependencies
-python main.py --version       # Show version
-```
-
-### Testing
-```bash
-# Interactive test console
-cd image_remapping/tests
-python standalone_test_console.py
-
-# Quick test
-python standalone_test_console.py --quick
-
-# Stress test
-python standalone_test_console.py --stress
-
-# Method comparison
-python standalone_test_console.py --compare
-```
+**GUI features:**
+- Left panel: Transform selection, grid configuration, parameter sliders
+- Right panel: Tabbed view (Images / Heatmaps / Info)
+- Live preview toggle with 300ms debounce
+- Export all presets to directory
+- Save remapped images and comparison figures
 
 ---
 
 ## Code Style Guidelines
 
-### Python Style
-- **Type hints**: Use type annotations for function parameters and return values
-- **Docstrings**: Use triple-double-quote docstrings for all public functions and classes
-- **Imports**: Group imports in order: stdlib, third-party, local modules
-- **Constants**: Use UPPER_SNAKE_CASE for module-level constants (defined in `config/settings.py`)
-- **Classes**: Use PascalCase for class names
-- **Functions/Variables**: Use snake_case for functions and variables
+### Naming Conventions
+- **Classes**: `PascalCase` (`GridRemapEngine`, `DistortionPresets`)
+- **Functions/Methods**: `snake_case` (`build_remap_maps`, `apply_remap`)
+- **Constants**: `UPPER_SNAKE_CASE` (`DEFAULT_SIZE`, `_CV2_INTERP`)
+- **Private members**: Leading underscore (`_bgr_to_photoimage`, `_on_pipeline_done`)
+- **Type aliases**: `CamelCase` suffix with `Array` (`ImageArray`, `DisplacementGrid`)
 
-### Architecture Patterns
-- **Modular design**: Each module has a single responsibility
-- **Separation of concerns**: Core logic separate from UI, data I/O separate from processing
-- **Configuration centralization**: All defaults and validation ranges in `config/settings.py`
-- **Error handling**: Use try-except with specific exception types; log warnings but continue processing when possible
+### Type Annotations
+- Full type hints throughout (Python 3.9+ style)
+- Use `from __future__ import annotations` for forward references
+- Common types: `np.ndarray`, `Tuple[int, int]`, `Optional[str]`
 
-### Example Code Pattern
-```python
-from typing import Tuple, Optional, Dict, Any
-import numpy as np
+### Documentation Style
+- NumPy-style docstrings with Parameters/Returns sections
+- Module-level docstrings explaining purpose and usage
+- Inline comments for algorithm steps and non-obvious logic
 
-class MyProcessor:
-    """
-    Brief description of the class.
-    
-    Longer description with usage examples if needed.
-    """
-    
-    def __init__(self):
-        self.cache = {}
-        
-    def process_data(self, data: np.ndarray, param: float) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """
-        Process the input data.
-        
-        Args:
-            data: Input array to process
-            param: Processing parameter
-            
-        Returns:
-            Tuple of (processed_array, metadata_dict)
-            
-        Raises:
-            ValueError: If data is invalid
-        """
-        if data is None or data.size == 0:
-            raise ValueError("Data cannot be empty")
-        
-        # Processing logic here
-        result = data * param
-        
-        metadata = {
-            'input_shape': data.shape,
-            'param_used': param
-        }
-        
-        return result, metadata
-```
-
----
-
-## Testing Instructions
-
-### Running Tests
-
-1. **Interactive Test Console** (recommended for development):
-   ```bash
-   cd image_remapping/tests
-   python standalone_test_console.py
-   ```
-   Menu options:
-   - Quick Validation Test - Standard barrel distortion
-   - Stress Test - Extreme parameters
-   - Method Comparison - Compare algorithms
-   - Custom Test - User-defined parameters
-
-2. **Programmatic Testing**:
-   ```python
-   from application.processor import processor
-   
-   # Test correction accuracy
-   print(processor.test_correction_accuracy())
-   
-   # Validate correction quality
-   print(processor.validate_correction_quality('checkerboard', 'iterative'))
-   ```
-
-### Quality Metrics Thresholds
-| Metric | Excellent | Good | Acceptable | Poor |
-|--------|-----------|------|------------|------|
-| PSNR | >40 dB | >30 dB | >25 dB | <25 dB |
-| Correlation | >0.99 | >0.95 | >0.90 | <0.90 |
-| Geometric Error | <0.5 px | <1.0 px | <2.0 px | >2.0 px |
-| Round-trip Error | <0.1 px | <0.5 px | <1.0 px | >1.0 px |
-
-### Test Grade Scale
-- **A** (<0.1 px): Excellent
-- **B** (<0.5 px): Good  
-- **C** (<1.0 px): Fair
-- **D** (>1.0 px): Poor
-
----
-
-## Key Configuration Values
-
-Located in `image_remapping/config/settings.py`:
-
-### Default Dimensions
-- Image: 1280x720
-- Grid: 7 rows x 9 columns
-- GDC: 8192x6144
-
-### Distortion Coefficient Ranges (Brown-Conrady)
-- K1: [-0.5, 0.5]
-- K2: [-0.2, 0.2]
-- K3: [-0.1, 0.1]
-- P1, P2: [-0.1, 0.1]
-
-### Default Coefficients
-- K1: -0.2 (barrel distortion)
-- K2: 0.05
-- K3: 0.0
-- P1, P2: 0.0
-
-### Algorithm Parameters
-- Max iterations: 10
-- Convergence tolerance: 1e-6
-- Default interpolation: linear
-
----
-
-## Algorithm Guide
-
-| Method | Best For | Speed | Accuracy | Use Case |
-|--------|----------|-------|----------|----------|
-| **Iterative** | Complex distortions | Medium | Excellent | Research, high-quality correction |
-| **Analytical** | K1-only distortion | Fast | Good | Real-time applications |
-| **Polynomial** | Moderate distortions | Medium | Good | Balanced speed/quality |
-| **Original** | Basic correction | Fast | Fair | Visualization, prototyping |
-
----
-
-## GDC Data Format
-
-GDC files use the following format:
-
-```
-yuv_gdc_grid_dx_0_0 -48221    # X displacement for element 0
-yuv_gdc_grid_dx_0_1 137272    # X displacement for element 1
-...
-yuv_gdc_grid_dy_0_0 5678      # Y displacement for element 0
-yuv_gdc_grid_dy_0_1 5679      # Y displacement for element 1
-...
-```
-
-Each line contains: `<element_name> <integer_value>`
-
-- Element naming: `yuv_gdc_grid_{dx|dy}_0_{index}`
-- Index is zero-based and sequential
-- Values are typically integers representing fixed-point displacements
-
----
-
-## Security Considerations
-
-### File Upload Restrictions
-- Max upload size: 50 MB
-- Allowed extensions: .txt, .csv, .dat
-- Max lines per file: 1,000,000
-- Content scanning enabled
-
-### Input Validation
-- All grid dimensions validated against ranges in settings.py
-- Coefficient values checked against VALIDATION_RANGES
-- File size limits enforced before processing
+### Code Organization
+- Group imports: stdlib → third-party → local modules
+- Constants defined near top of files
+- Helper classes defined before main classes
+- Static methods for stateless operations
 
 ---
 
 ## Development Workflow
 
-1. **Make changes** to relevant module in appropriate subdirectory
-2. **Update configuration** in `config/settings.py` if adding new parameters
-3. **Test changes** using the test console or validation functions
-4. **Update docstrings** and documentation as needed
-5. **Follow the modular architecture** - maintain separation of concerns
+### No Formal Build System
+This is a pure Python project with no build step required.
 
----
+### No Test Suite
+The project relies on:
+1. **Visual verification** — Use `--show` flag or GUI to inspect results
+2. **Sample patterns** — Geometric patterns make distortion artefacts obvious
+3. **Batch mode** — `python main.py --batch` generates comprehensive comparison set
 
-## Common Issues and Solutions
-
-### Import Errors
-```python
-# Add project root to path if needed
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-```
-
-### Gradio Port Conflicts
+### Recommended Validation Workflow
 ```bash
-# Specify custom port
-python main.py --port 7861
-```
+# 1. Run batch to verify all transforms work
+python main.py --batch
 
-### Memory Issues with Large Grids
-- Reduce grid dimensions in processing
-- Use chunked processing for very large files
-- Monitor memory usage with `psutil` if available
+# 2. Inspect output/ directory for expected files
+ls output/*/
+
+# 3. Test specific transform with grid overlay
+python main.py --transform barrel --sample grid_lines --grid-overlay --show
+```
 
 ---
 
-## Additional Resources
+## Algorithm Notes
 
-- **Integration Guide**: `image_remapping/docs/integration_guide.md`
-- **Sample Data**: `image_remapping/Data/`
-- **Main README**: `Readme.md` (project root)
+### Inverse Mapping Convention
+`cv2.remap` uses **inverse mapping** (source coordinates):
+```
+map_x[dst_y, dst_x] = src_x  # source column to sample
+map_y[dst_y, dst_x] = src_y  # source row to sample
+```
+Therefore: `src = dst + displacement`
+
+### Grid Interpolation
+- **Bicubic** (default): `RectBivariateSpline` with kx=ky=3 (clamped to grid size)
+- **Linear**: `RegularGridInterpolator` with `method="linear"`
+
+### Coordinate Systems
+- Images: `(H, W)` shape, `(row, col)` indexing
+- Grid nodes: evenly spaced from `0` to `H-1` / `W-1`
+- Displacement units: pixels (float32)
+
+---
+
+## Security Considerations
+
+- **File I/O**: Uses `pathlib.Path` for path handling; no user input directly passed to shell
+- **Image loading**: OpenCV's `cv2.imread()` — validates image format via OpenCV
+- **No network operations**: Pure offline image processing
+- **GUI file dialogs**: Tkinter native dialogs with standard file type filters
+
+---
+
+## Dependencies
+
+Minimal core dependencies:
+```
+opencv-python
+numpy
+scipy
+matplotlib
+Pillow
+```
+
+Optional for headless environments:
+```
+opencv-python-headless
+```
+
+---
+
+## Common Tasks
+
+### Add New Distortion Preset
+1. Add static method to `DistortionPresets` in `grid_engine.py`
+2. Return `(dx_grid, dy_grid)` as `float32` arrays
+3. Update `TRANSFORM_PARAMS` in `gui_app.py` if parameters needed
+4. Add to `dispatch` dict in `main.py` and `gui_app.py`
+
+### Add New Sample Pattern
+1. Add static method to `SampleImageGenerator` in `sample_images.py`
+2. Return `uint8` BGR array of requested `(width, height)`
+3. Register in `SAMPLE_IMAGES` dictionary
+
+### Adjust Default Parameters
+- CLI defaults: `DEFAULT_*` constants in `main.py`
+- GUI defaults: Variable initializers in `RemapGUI.__init__()`
+
+---
+
+## File Outputs
+
+- **Remapped images**: `{transform}_{sample}.png` (BGR, via `cv2.imwrite`)
+- **Comparison figures**: `{transform}_{sample}_comparison.png` (matplotlib, dark theme)
+- **Batch output structure**: `output/{transform}/{sample}.png`

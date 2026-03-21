@@ -1,0 +1,129 @@
+{
+  "window": {
+    "title": "Fixed Grid Image Remapping",
+    "geometry": "1280x760",
+    "minsize": [
+      900,
+      600
+    ]
+  },
+  "input": {
+    "sample_pattern": "color_checkerboard",
+    "width": 640,
+    "height": 480
+  },
+  "transform": {
+    "type": "barrel",
+    "available_transforms": [
+      "barrel",
+      "pincushion",
+      "swirl",
+      "wave",
+      "fisheye",
+      "correction",
+      "identity"
+    ]
+  },
+  "grid": {
+    "rows": 33,
+    "cols": 33
+  },
+  "parameters": {
+    "k1": {
+      "value": 0.4,
+      "range": [
+        -1.0,
+        1.0
+      ],
+      "resolution": 0.01
+    },
+    "strength": {
+      "value": 2.5,
+      "range": [
+        0.1,
+        5.0
+      ],
+      "resolution": 0.1
+    },
+    "amplitude": {
+      "value": 15.0,
+      "range": [
+        1.0,
+        60.0
+      ],
+      "resolution": 1.0
+    }
+  },
+  "interpolation": {
+    "pixel_interp": "cubic",
+    "pixel_interp_options": [
+      "nearest",
+      "linear",
+      "cubic",
+      "lanczos"
+    ],
+    "grid_interp": "bicubic",
+    "grid_interp_options": [
+      "bicubic",
+      "linear"
+    ],
+    "border_mode": "constant",
+    "border_mode_options": [
+      "constant",
+      "replicate",
+      "reflect",
+      "wrap"
+    ]
+  },
+  "display": {
+    "show_grid_overlay": false,
+    "grid_viz_type": "dots",
+    "grid_viz_type_options": [
+      "lines",
+      "dots"
+    ],
+    "live_preview": true,
+    "compute_heatmaps": true
+  },
+  "roi": {
+    "draw": true,
+    "crop": false,
+    "x": 150,
+    "y": 120,
+    "w": 320,
+    "h": 240
+  },
+  "theme": {
+    "background": "#1e1e2e",
+    "background_secondary": "#2a2a3e",
+    "background_input": "#353550",
+    "accent": "#7c83fd",
+    "accent_light": "#a0a8ff",
+    "foreground": "#cdd6f4",
+    "foreground_secondary": "#a6adc8",
+    "selection_background": "#5b5fd0",
+    "selection_foreground": "#ffffff",
+    "success_color": "#a6e3a1",
+    "error_color": "#f38ba8",
+    "warning_color": "#fab387"
+  },
+  "transform_params_map": {
+    "barrel": [
+      "k1"
+    ],
+    "pincushion": [
+      "k1"
+    ],
+    "swirl": [
+      "strength"
+    ],
+    "wave": [
+      "amplitude"
+    ],
+    "fisheye": [],
+    "correction": [
+      "k1"
+    ],
+    "identity": []
+  }
+}

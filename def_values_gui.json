@@ -8,7 +8,7 @@
     ]
   },
   "input": {
-    "sample_pattern": "color_checkerboard",
+    "sample_pattern": "color_wheel",
     "width": 640,
     "height": 480
   },
@@ -92,6 +92,17 @@
     "y": 120,
     "w": 320,
     "h": 240
+  },
+  "flip_rotate": {
+    "flip_h": true,
+    "flip_v": true,
+    "rotate": 90,
+    "rotate_options": [
+      0,
+      90,
+      180,
+      270
+    ]
   },
   "theme": {
     "background": "#1e1e2e",

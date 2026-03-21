@@ -58,18 +58,48 @@ from sample_images import SAMPLE_IMAGES
 # Constants / palette
 # ---------------------------------------------------------------------------
 PAD   = 6
-BG    = "#1e1e2e"    # dark base
-BG2   = "#2a2a3e"    # panel bg
-BG3   = "#353550"    # lighter panel for inputs
-ACCENT = "#7c83fd"   # highlight
-ACCENT_LIGHT = "#a0a8ff"  # lighter accent for selections
-FG    = "#cdd6f4"    # main text
-FG2   = "#a6adc8"    # secondary text
-OK    = "#a6e3a1"
-ERR   = "#f38ba8"
-WARN  = "#fab387"
-SELECT_BG = "#5b5fd0"  # Selection background - high contrast
-SELECT_FG = "#ffffff"  # Selection foreground - white text
+
+# Dark theme (default)
+THEME_DARK = {
+    "bg": "#1e1e2e",         # dark base
+    "bg2": "#2a2a3e",        # panel bg
+    "bg3": "#353550",        # lighter panel for inputs
+    "accent": "#7c83fd",     # highlight
+    "accent_light": "#a0a8ff",  # lighter accent
+    "fg": "#cdd6f4",         # main text
+    "fg2": "#a6adc8",        # secondary text
+    "ok": "#a6e3a1",
+    "err": "#f38ba8",
+    "warn": "#fab387",
+    "select_bg": "#5b5fd0",  # Selection background
+    "select_fg": "#ffffff",  # Selection foreground
+    "info_bg": "#0d0d1a",    # Info text background
+}
+
+# Light theme
+THEME_LIGHT = {
+    "bg": "#f0f0f5",         # light base
+    "bg2": "#e0e0e8",        # panel bg
+    "bg3": "#d0d0db",        # inputs
+    "accent": "#4a4fd9",     # highlight
+    "accent_light": "#6a6ff0",  # lighter accent
+    "fg": "#1a1a2e",         # main text (dark)
+    "fg2": "#4a4a5e",        # secondary text
+    "ok": "#2d7a2d",
+    "err": "#c93535",
+    "warn": "#c97800",
+    "select_bg": "#4a4fd9",  # Selection background
+    "select_fg": "#ffffff",  # Selection foreground
+    "info_bg": "#f8f8fc",    # Info text background
+}
+
+# Current theme (will be set in __init__)
+BG = BG2 = BG3 = ACCENT = ACCENT_LIGHT = FG = FG2 = OK = ERR = WARN = SELECT_BG = SELECT_FG = ""
+
+FONT_BODY  = ("Segoe UI", 9)
+FONT_BOLD  = ("Segoe UI", 9, "bold")
+FONT_TITLE = ("Segoe UI", 10, "bold")
+FONT_MONO  = ("Consolas", 9)
 
 FONT_BODY  = ("Segoe UI", 9)
 FONT_BOLD  = ("Segoe UI", 9, "bold")
@@ -237,6 +267,10 @@ class RemapGUI(tk.Tk):
     def __init__(self, startup_image_path: Optional[str] = None):
         super().__init__()
 
+        # Initialize theme (load from defaults or use dark)
+        self._theme_var = tk.StringVar(value="dark")
+        self._apply_theme_colors(self._theme_var.get())
+
         self.title("Fixed Grid Image Remapping")
         self.geometry("1280x760")
         self.minsize(900, 600)
@@ -369,6 +403,15 @@ class RemapGUI(tk.Tk):
                     self._flip_v_var.set(fr["flip_v"])
                 if "rotate" in fr:
                     self._rotate_var.set(fr["rotate"])
+
+            # Theme settings
+            if "theme" in self._defaults:
+                theme = self._defaults["theme"]
+                if "name" in theme:
+                    loaded_theme = theme["name"]
+                    if loaded_theme != self._theme_var.get():
+                        self._theme_var.set(loaded_theme)
+                        self._apply_theme_colors(loaded_theme)
         except Exception as e:
             print(f"Warning: Error applying loaded defaults: {e}")
 
@@ -842,8 +885,9 @@ class RemapGUI(tk.Tk):
         self._canvas_mag.grid(row=0, column=2, sticky="nsew", padx=(2, 4), pady=4)
 
     def _build_info_tab(self, parent: ttk.Frame):
+        info_bg = THEME_DARK["info_bg"] if self._theme_var.get() == "dark" else THEME_LIGHT["info_bg"]
         self._info_text = tk.Text(
-            parent, bg="#0d0d1a", fg=FG, font=FONT_MONO,
+            parent, bg=info_bg, fg=FG, font=FONT_MONO,
             relief=tk.FLAT, state=tk.DISABLED, wrap=tk.WORD,
             selectbackground=SELECT_BG, selectforeground=SELECT_FG,
             inactiveselectbackground=SELECT_BG,
@@ -867,6 +911,15 @@ class RemapGUI(tk.Tk):
         )
         self._status_lbl.pack(side=tk.LEFT, padx=4)
 
+        # Theme toggle button
+        current_theme = self._theme_var.get()
+        theme_btn = ttk.Button(
+            bar, text="☀️ Light" if current_theme == "dark" else "🌙 Dark",
+            width=10, command=self._toggle_theme
+        )
+        theme_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        self._theme_btn = theme_btn
+
         self._progress = ttk.Progressbar(
             bar, mode="indeterminate", length=120,
         )
@@ -878,6 +931,58 @@ class RemapGUI(tk.Tk):
     def _set_status(self, msg: str, colour: str = FG2):
         self._status_var.set(msg)
         self._status_lbl.config(foreground=colour)
+
+    def _apply_theme_colors(self, theme: str):
+        """Apply theme colors to global constants."""
+        global BG, BG2, BG3, ACCENT, ACCENT_LIGHT, FG, FG2, OK, ERR, WARN, SELECT_BG, SELECT_FG
+        theme_dict = THEME_LIGHT if theme == "light" else THEME_DARK
+        BG = theme_dict["bg"]
+        BG2 = theme_dict["bg2"]
+        BG3 = theme_dict["bg3"]
+        ACCENT = theme_dict["accent"]
+        ACCENT_LIGHT = theme_dict["accent_light"]
+        FG = theme_dict["fg"]
+        FG2 = theme_dict["fg2"]
+        OK = theme_dict["ok"]
+        ERR = theme_dict["err"]
+        WARN = theme_dict["warn"]
+        SELECT_BG = theme_dict["select_bg"]
+        SELECT_FG = theme_dict["select_fg"]
+
+    def _toggle_theme(self):
+        """Toggle between light and dark themes."""
+        current = self._theme_var.get()
+        new_theme = "light" if current == "dark" else "dark"
+        self._theme_var.set(new_theme)
+
+        # Apply new theme colors
+        self._apply_theme_colors(new_theme)
+
+        # Update theme button text
+        self._theme_btn.config(text="☀️ Light" if new_theme == "dark" else "🌙 Dark")
+
+        # Reapply styles
+        self._apply_theme()
+
+        # Update widget backgrounds
+        self.configure(bg=BG)
+
+        # Update info text widget
+        info_bg = THEME_LIGHT["info_bg"] if new_theme == "light" else THEME_DARK["info_bg"]
+        self._info_text.config(bg=info_bg, fg=FG)
+
+        # Update canvases
+        canvas_bg = "#0d0d1a" if new_theme == "dark" else "#f0f0f5"
+        self._canvas_orig._canvas.config(bg=canvas_bg)
+        self._canvas_out._canvas.config(bg=canvas_bg)
+        self._canvas_remapped._canvas.config(bg=canvas_bg)
+        self._canvas_transformed._canvas.config(bg=canvas_bg)
+        self._canvas_dx._canvas.config(bg=canvas_bg)
+        self._canvas_dy._canvas.config(bg=canvas_bg)
+        self._canvas_mag._canvas.config(bg=canvas_bg)
+
+        # Update status label
+        self._set_status(f"Theme switched to {new_theme}", OK)
 
     def _load_defaults_from_json(self) -> Optional[Dict[str, Any]]:
         """Load default GUI values from JSON file if it exists."""
@@ -957,6 +1062,7 @@ class RemapGUI(tk.Tk):
                 "rotate_options": [0, 90, 180, 270],
             },
             "theme": {
+                "name": self._theme_var.get(),
                 "background": BG,
                 "background_secondary": BG2,
                 "background_input": BG3,

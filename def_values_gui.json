@@ -105,18 +105,19 @@
     ]
   },
   "theme": {
-    "background": "#1e1e2e",
-    "background_secondary": "#2a2a3e",
-    "background_input": "#353550",
-    "accent": "#7c83fd",
-    "accent_light": "#a0a8ff",
-    "foreground": "#cdd6f4",
-    "foreground_secondary": "#a6adc8",
-    "selection_background": "#5b5fd0",
+    "name": "light",
+    "background": "#f0f0f5",
+    "background_secondary": "#e0e0e8",
+    "background_input": "#d0d0db",
+    "accent": "#4a4fd9",
+    "accent_light": "#6a6ff0",
+    "foreground": "#1a1a2e",
+    "foreground_secondary": "#4a4a5e",
+    "selection_background": "#4a4fd9",
     "selection_foreground": "#ffffff",
-    "success_color": "#a6e3a1",
-    "error_color": "#f38ba8",
-    "warning_color": "#fab387"
+    "success_color": "#2d7a2d",
+    "error_color": "#c93535",
+    "warning_color": "#c97800"
   },
   "transform_params_map": {
     "barrel": [

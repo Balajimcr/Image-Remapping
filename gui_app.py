@@ -329,6 +329,22 @@ class RemapGUI(tk.Tk):
                     self._live_var.set(disp["live_preview"])
                 if "compute_heatmaps" in disp:
                     self._show_heatmap_var.set(disp["compute_heatmaps"])
+
+            # ROI settings
+            if "roi" in self._defaults:
+                roi = self._defaults["roi"]
+                if "draw" in roi:
+                    self._roi_draw_var.set(roi["draw"])
+                if "crop" in roi:
+                    self._roi_crop_var.set(roi["crop"])
+                if "x" in roi:
+                    self._roi_x_var.set(roi["x"])
+                if "y" in roi:
+                    self._roi_y_var.set(roi["y"])
+                if "w" in roi:
+                    self._roi_w_var.set(roi["w"])
+                if "h" in roi:
+                    self._roi_h_var.set(roi["h"])
         except Exception as e:
             print(f"Warning: Error applying loaded defaults: {e}")
 
@@ -615,6 +631,69 @@ class RemapGUI(tk.Tk):
                         command=self._schedule_live).pack(
             anchor="w", padx=p, pady=2)
 
+        # --- Section: ROI (Crop) --------------------------------------------
+        roi_frame = ttk.LabelFrame(inner, text="  Region of Interest (ROI)  ")
+        roi_frame.grid(row=row, column=0, sticky="ew", padx=p, pady=2)
+        row += 1
+
+        # ROI Enable/Draw checkboxes
+        roi_chk_row = ttk.Frame(roi_frame)
+        roi_chk_row.pack(fill=tk.X, padx=p, pady=2)
+
+        self._roi_draw_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(roi_chk_row, text="Draw ROI",
+                        variable=self._roi_draw_var,
+                        command=self._schedule_live).pack(side=tk.LEFT, padx=(0, 10))
+
+        self._roi_crop_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(roi_chk_row, text="Crop to ROI",
+                        variable=self._roi_crop_var,
+                        command=self._schedule_live).pack(side=tk.LEFT)
+
+        # ROI entry fields (direct pixel values)
+        roi_grid = ttk.Frame(roi_frame)
+        roi_grid.pack(fill=tk.X, padx=p, pady=4)
+
+        # X position
+        ttk.Label(roi_grid, text="X:", width=3).grid(row=0, column=0, sticky="w")
+        self._roi_x_var = tk.IntVar(value=100)
+        self._roi_x_entry = ttk.Spinbox(roi_grid, textvariable=self._roi_x_var,
+                                        from_=0, to=9999, increment=10, width=6,
+                                        command=self._schedule_live)
+        self._roi_x_entry.grid(row=0, column=1, padx=(0, 8))
+        self._roi_x_entry.bind("<Return>", lambda _: self._schedule_live())
+
+        # Y position
+        ttk.Label(roi_grid, text="Y:", width=3).grid(row=0, column=2, sticky="w")
+        self._roi_y_var = tk.IntVar(value=100)
+        self._roi_y_entry = ttk.Spinbox(roi_grid, textvariable=self._roi_y_var,
+                                        from_=0, to=9999, increment=10, width=6,
+                                        command=self._schedule_live)
+        self._roi_y_entry.grid(row=0, column=3)
+        self._roi_y_entry.bind("<Return>", lambda _: self._schedule_live())
+
+        # Width
+        ttk.Label(roi_grid, text="W:", width=3).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self._roi_w_var = tk.IntVar(value=320)
+        self._roi_w_entry = ttk.Spinbox(roi_grid, textvariable=self._roi_w_var,
+                                        from_=10, to=9999, increment=10, width=6,
+                                        command=self._schedule_live)
+        self._roi_w_entry.grid(row=1, column=1, padx=(0, 8), pady=(4, 0))
+        self._roi_w_entry.bind("<Return>", lambda _: self._schedule_live())
+
+        # Height
+        ttk.Label(roi_grid, text="H:", width=3).grid(row=1, column=2, sticky="w", pady=(4, 0))
+        self._roi_h_var = tk.IntVar(value=240)
+        self._roi_h_entry = ttk.Spinbox(roi_grid, textvariable=self._roi_h_var,
+                                        from_=10, to=9999, increment=10, width=6,
+                                        command=self._schedule_live)
+        self._roi_h_entry.grid(row=1, column=3, pady=(4, 0))
+        self._roi_h_entry.bind("<Return>", lambda _: self._schedule_live())
+
+        ttk.Button(roi_frame, text="Reset ROI",
+                   command=self._reset_roi,
+                   style="Save.TButton").pack(fill=tk.X, padx=p, pady=4)
+
         # --- Section: Actions -----------------------------------------------
         act_frame = ttk.Frame(inner)
         act_frame.grid(row=row, column=0, sticky="ew", padx=p, pady=(p, 2))
@@ -785,6 +864,14 @@ class RemapGUI(tk.Tk):
                 "live_preview": self._live_var.get(),
                 "compute_heatmaps": self._show_heatmap_var.get()
             },
+            "roi": {
+                "draw": self._roi_draw_var.get(),
+                "crop": self._roi_crop_var.get(),
+                "x": self._roi_x_var.get(),
+                "y": self._roi_y_var.get(),
+                "w": self._roi_w_var.get(),
+                "h": self._roi_h_var.get(),
+            },
             "theme": {
                 "background": BG,
                 "background_secondary": BG2,
@@ -830,6 +917,21 @@ class RemapGUI(tk.Tk):
         self._update_param_visibility()
         self._schedule_live()
 
+    def _reset_roi(self):
+        """Reset ROI to default values."""
+        self._roi_x_var.set(100)
+        self._roi_y_var.set(100)
+        self._roi_w_var.set(320)
+        self._roi_h_var.set(240)
+        self._schedule_live()
+
+    def _update_roi_max_values(self, width: int, height: int):
+        """Update ROI entry max values based on image size."""
+        self._roi_x_entry.configure(to=width)
+        self._roi_y_entry.configure(to=height)
+        self._roi_w_entry.configure(to=width)
+        self._roi_h_entry.configure(to=height)
+
     def _schedule_live(self):
         """Debounce live preview: cancel pending timer, restart 300 ms."""
         if self._live_timer:
@@ -850,6 +952,7 @@ class RemapGUI(tk.Tk):
             return
         self._source_bgr = gen(W, H)
         self._canvas_orig.show(self._source_bgr)
+        self._update_roi_max_values(W, H)
         self._set_status(f"Generated '{name}'  {W}x{H}", OK)
         self._schedule_live()
 
@@ -871,6 +974,7 @@ class RemapGUI(tk.Tk):
         H = self._height_var.get()
         self._source_bgr = cv2.resize(bgr, (W, H))
         self._canvas_orig.show(self._source_bgr)
+        self._update_roi_max_values(W, H)
         self._set_status(f"Loaded '{Path(path).name}'  ->  {W}x{H}", OK)
         self._schedule_live()
 
@@ -898,6 +1002,12 @@ class RemapGUI(tk.Tk):
             "overlay":        self._overlay_var.get(),
             "grid_viz_type":  self._grid_viz_var.get(),
             "heatmap":        self._show_heatmap_var.get(),
+            "roi_draw":       self._roi_draw_var.get(),
+            "roi_crop":       self._roi_crop_var.get(),
+            "roi_x":          self._roi_x_var.get(),
+            "roi_y":          self._roi_y_var.get(),
+            "roi_w":          self._roi_w_var.get(),
+            "roi_h":          self._roi_h_var.get(),
         }
 
         self._start_progress()
@@ -947,6 +1057,33 @@ class RemapGUI(tk.Tk):
                 if params["overlay"] else result
             )
 
+            # 5. Apply ROI operations
+            roi_info = None
+            if params.get("roi_draw") or params.get("roi_crop"):
+                roi_x = int(params.get("roi_x", 100))
+                roi_y = int(params.get("roi_y", 100))
+                roi_w = int(params.get("roi_w", 320))
+                roi_h = int(params.get("roi_h", 240))
+
+                # Clamp to image bounds
+                roi_x = max(0, min(roi_x, W - 1))
+                roi_y = max(0, min(roi_y, H - 1))
+                roi_w = max(1, min(roi_w, W - roi_x))
+                roi_h = max(1, min(roi_h, H - roi_y))
+
+                roi_info = (roi_x, roi_y, roi_w, roi_h)
+
+                # Draw ROI rectangle on overlay
+                if params.get("roi_draw") and roi_w > 0 and roi_h > 0:
+                    cv2.rectangle(overlay, (roi_x, roi_y),
+                                  (roi_x + roi_w, roi_y + roi_h),
+                                  (0, 255, 255), 2)  # Cyan color
+
+                # Crop to ROI
+                if params.get("roi_crop") and roi_w > 0 and roi_h > 0:
+                    overlay = overlay[roi_y:roi_y + roi_h, roi_x:roi_x + roi_w]
+                    result = result[roi_y:roi_y + roi_h, roi_x:roi_x + roi_w]
+
             elapsed_ms = (time.perf_counter() - t0) * 1000
 
             # 5. Heatmaps - use full-resolution (dense) displacement maps
@@ -977,6 +1114,7 @@ class RemapGUI(tk.Tk):
                 "dy_min":        float(dy_grid.min()),
                 "dy_max":        float(dy_grid.max()),
                 "mag_max":       float(np.sqrt(dx_grid**2 + dy_grid**2).max()),
+                "roi":           roi_info,
             }
 
             # Schedule UI update on main thread
@@ -1068,6 +1206,17 @@ class RemapGUI(tk.Tk):
             f"  Pixel interp    : {info['remap_interp']}",
             f"  Border mode     : {info['border']}",
             f"  Image size      : {info['size']}",
+        ]
+
+        # Add ROI info if present
+        if info.get("roi"):
+            rx, ry, rw, rh = info["roi"]
+            lines.append("")
+            lines.append("--- Region of Interest (ROI) ----------------------------")
+            lines.append(f"  Position        : ({rx}, {ry})")
+            lines.append(f"  Size            : {rw} x {rh}")
+
+        lines.extend([
             "",
             "--- Displacement Statistics ------------------------------",
             f"  dX range        : {info['dx_min']:.2f} .. {info['dx_max']:.2f} px",
@@ -1081,7 +1230,8 @@ class RemapGUI(tk.Tk):
             "  Mapping type    : Inverse (src <- dst + displacement)",
             "  Core function   : cv2.remap(src, map_x, map_y, ...)",
             "  Grid upsampling : RectBivariateSpline (scipy)",
-        ]
+        ])
+
         text = "\n".join(lines)
         self._info_text.config(state=tk.NORMAL)
         self._info_text.delete("1.0", tk.END)

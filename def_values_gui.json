@@ -85,6 +85,14 @@
     "live_preview": true,
     "compute_heatmaps": true
   },
+  "roi": {
+    "draw": true,
+    "crop": false,
+    "x": 150,
+    "y": 120,
+    "w": 320,
+    "h": 240
+  },
   "theme": {
     "background": "#1e1e2e",
     "background_secondary": "#2a2a3e",

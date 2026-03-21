@@ -860,6 +860,6 @@ if __name__ == "__main__":
     interface.launch(
         server_name="localhost", # Use "0.0.0.0" to make it accessible from other devices on the network
         server_port=7860,
-        share=True,
+        share=False,
         debug=True
     )

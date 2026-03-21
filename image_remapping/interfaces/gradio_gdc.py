@@ -564,11 +564,12 @@ def launch_gdc_utility():
         share=APP_CONFIG['share'],
         debug=APP_CONFIG['debug'],
         show_error=True,
-        quiet=False
+        quiet=False,
+        show_api=False
     )
 
 
 # For standalone execution
 if __name__ == "__main__":
-    print("🚀 Launching GDC Grid Interpolation Tool...")
+    print("Launching GDC Grid Interpolation Tool...")
     launch_gdc_utility()

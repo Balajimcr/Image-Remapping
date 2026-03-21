@@ -50,7 +50,7 @@ def check_dependencies():
             missing_packages.append(package)
     
     if missing_packages:
-        print("❌ Missing required packages:")
+        print("[ERROR] Missing required packages:")
         for package in missing_packages:
             print(f"  - {package}")
         print("\nPlease install them using:")
@@ -64,18 +64,19 @@ def launch_main_interface():
     try:
         from interfaces.gradio_main import create_gradio_interface
         
-        print("🚀 Starting main image remapping interface...")
-        print("📋 Features: Lens distortion simulation, correction algorithms, quality assessment")
+        print("Starting main image remapping interface...")
+        print("Features: Lens distortion simulation, correction algorithms, quality assessment")
         interface = create_gradio_interface()
         interface.launch(
-            share=True,
+            share=False,
             server_name="localhost",
             show_error=True,
-            quiet=True
+            quiet=True,
+            show_api=False
         )
         
     except ImportError as e:
-        print(f"❌ Import error: {e}")
+        print(f"[ERROR] Import error: {e}")
         print("Make sure all module files are properly structured.")
         sys.exit(1)
 
@@ -84,18 +85,19 @@ def launch_gdc_utility():
     try:
         from interfaces.gradio_gdc import create_gdc_interface
         
-        print("🚀 Starting GDC grid interpolation interface...")
-        print("📋 Features: Grid parsing, bicubic interpolation, hardware-ready exports")
+        print("Starting GDC grid interpolation interface...")
+        print("Features: Grid parsing, bicubic interpolation, hardware-ready exports")
         interface = create_gdc_interface()
         interface.launch(
-            share=True,
+            share=False,
             server_name="localhost",
             show_error=True,
-            quiet=True
+            quiet=True,
+            show_api=False
         )
         
     except ImportError as e:
-        print(f"❌ Import error: {e}")
+        print(f"[ERROR] Import error: {e}")
         print("Make sure all module files are properly structured.")
         sys.exit(1)
 
@@ -106,13 +108,13 @@ def launch_integrated_interface():
         from interfaces.gradio_main import create_gradio_interface as create_main_interface
         from interfaces.gradio_gdc import create_gdc_interface
         
-        print("🚀 Starting integrated Image Remapping Suite...")
-        print("📋 Features: Full lens distortion toolkit + GDC grid processing")
+        print("Starting integrated Image Remapping Suite...")
+        print("Features: Full lens distortion toolkit + GDC grid processing")
         
         # Create tabbed interface
         with gr.Blocks(title="Image Remapping Suite - Complete", theme=gr.themes.Soft()) as interface:
             gr.Markdown("""
-            # 🔍 Image Remapping Suite - Complete Toolkit
+            # Image Remapping Suite - Complete Toolkit
             
             **Professional geometric image transformation and grid processing platform**
             
@@ -121,7 +123,7 @@ def launch_integrated_interface():
             """)
             
             with gr.Tabs():
-                with gr.Tab("🌀 Lens Distortion Toolkit", id="main"):
+                with gr.Tab("Lens Distortion Toolkit", id="main"):
                     gr.Markdown("""
                     ### Brown-Conrady Distortion Modeling & Correction
                     
@@ -134,7 +136,7 @@ def launch_integrated_interface():
                     gr.Markdown("**Main distortion correction interface components would be embedded here**")
                     gr.Markdown("For now, please use the standalone interfaces via command line options.")
                 
-                with gr.Tab("🎯 GDC Grid Processing", id="gdc"):
+                with gr.Tab("GDC Grid Processing", id="gdc"):
                     gr.Markdown("""
                     ### Geometric Distortion Correction Grid Interpolation
                     
@@ -149,7 +151,7 @@ def launch_integrated_interface():
             
             gr.Markdown("""
             ---
-            ### 🚀 Quick Start Options
+            ### Quick Start Options
             
             **Launch Standalone Interfaces:**
             ```bash
@@ -171,14 +173,15 @@ def launch_integrated_interface():
             """)
         
         interface.launch(
-            share=True,
+            share=False,
             server_name="localhost", 
             show_error=True,
-            quiet=True
+            quiet=True,
+            show_api=False
         )
         
     except ImportError as e:
-        print(f"❌ Import error: {e}")
+        print(f"[ERROR] Import error: {e}")
         print("Falling back to individual interface selection.")
         return False
     
@@ -187,71 +190,71 @@ def launch_integrated_interface():
 def show_feature_overview():
     """Display comprehensive feature overview"""
     print("""
-🔍 IMAGE REMAPPING SUITE - FEATURE OVERVIEW
+IMAGE REMAPPING SUITE - FEATURE OVERVIEW
 ==========================================
 
-📋 MAIN LENS DISTORTION TOOLKIT:
-  🌀 Brown-Conrady Distortion Model
-    • Radial distortion (K1, K2, K3)
-    • Tangential distortion (P1, P2)
-    • Real-time parameter validation
+MAIN LENS DISTORTION TOOLKIT:
+  Brown-Conrady Distortion Model
+    - Radial distortion (K1, K2, K3)
+    - Tangential distortion (P1, P2)
+    - Real-time parameter validation
   
-  ⚖️ Multiple Correction Algorithms
-    • Iterative Newton-Raphson (most accurate)
-    • Analytical closed-form (fastest for K1-only)
-    • Polynomial approximation (balanced)
-    • Original basic correction (visualization)
+  Multiple Correction Algorithms
+    - Iterative Newton-Raphson (most accurate)
+    - Analytical closed-form (fastest for K1-only)
+    - Polynomial approximation (balanced)
+    - Original basic correction (visualization)
   
-  📊 Quality Assessment
-    • PSNR, SSIM, correlation metrics
-    • Geometric error analysis
-    • Method comparison tools
+  Quality Assessment
+    - PSNR, SSIM, correlation metrics
+    - Geometric error analysis
+    - Method comparison tools
   
-  🎨 Advanced Visualization
-    • Real-time distortion preview
-    • Grid mapping visualization
-    • Distortion magnitude heatmaps
-    • Vector field displays
+  Advanced Visualization
+    - Real-time distortion preview
+    - Grid mapping visualization
+    - Distortion magnitude heatmaps
+    - Vector field displays
 
-📋 GDC GRID PROCESSING TOOLKIT:
-  🎯 Advanced Interpolation
-    • Bicubic spline interpolation
-    • Configurable resolution scaling
-    • Sub-pixel precision maintenance
+GDC GRID PROCESSING TOOLKIT:
+  Advanced Interpolation
+    - Bicubic spline interpolation
+    - Configurable resolution scaling
+    - Sub-pixel precision maintenance
   
-  📁 Multiple Export Formats
-    • CSV for analysis and spreadsheets
-    • GDC format for hardware implementation
-    • Combined files for complete datasets
-    • ZIP packages for easy distribution
+  Multiple Export Formats
+    - CSV for analysis and spreadsheets
+    - GDC format for hardware implementation
+    - Combined files for complete datasets
+    - ZIP packages for easy distribution
   
-  🔒 Robust Validation
-    • Input format verification
-    • Dimension compatibility checks
-    • File size and content validation
-    • Error handling and recovery
+  Robust Validation
+    - Input format verification
+    - Dimension compatibility checks
+    - File size and content validation
+    - Error handling and recovery
   
-  📈 Comprehensive Analysis
-    • Statistical grid analysis
-    • Quality metrics computation
-    • Visual comparison tools
-    • Processing history tracking
+  Comprehensive Analysis
+    - Statistical grid analysis
+    - Quality metrics computation
+    - Visual comparison tools
+    - Processing history tracking
 
-🚀 SUPPORTED WORKFLOWS:
-  • Camera calibration and correction
-  • Hardware ISP/FPGA implementation
-  • Image processing research
-  • Quality assessment and validation
-  • Geometric transformation analysis
-  • Grid data conversion and scaling
+SUPPORTED WORKFLOWS:
+  - Camera calibration and correction
+  - Hardware ISP/FPGA implementation
+  - Image processing research
+  - Quality assessment and validation
+  - Geometric transformation analysis
+  - Grid data conversion and scaling
 
-💡 USE CASES:
-  • Automotive camera systems
-  • Security and surveillance
-  • Mobile device cameras
-  • Scientific imaging
-  • Virtual reality applications
-  • Augmented reality systems
+USE CASES:
+  - Automotive camera systems
+  - Security and surveillance
+  - Mobile device cameras
+  - Scientific imaging
+  - Virtual reality applications
+  - Augmented reality systems
 """)
 
 def main():
@@ -296,7 +299,7 @@ Examples:
     
     args = parser.parse_args()
     
-    print("🔍 IMAGE REMAPPING SUITE v2.0.0")
+    print("IMAGE REMAPPING SUITE v2.0.0")
     print("=" * 55)
     print("Enhanced with GDC Grid Processing Capabilities")
     print("")
@@ -307,43 +310,43 @@ Examples:
         return
     
     # Check dependencies
-    print("🔍 Checking dependencies...")
+    print("Checking dependencies...")
     if not check_dependencies():
-        print("❌ Missing dependencies. Please install required packages.")
+        print("[ERROR] Missing dependencies. Please install required packages.")
         sys.exit(1)
     
-    print("✅ All dependencies found")
+    print("[OK] All dependencies found")
     
     # Check only mode
     if args.check:
-        print("🎉 System ready for Image Remapping Suite")
+        print("[OK] System ready for Image Remapping Suite")
         return
     
-    print("📝 Use Ctrl+C to stop the server")
+    print("Use Ctrl+C to stop the server")
     print("")
     
     try:
         if args.interface == 'main':
-            print("🎯 Selected: Main Lens Distortion Interface")
+            print("Selected: Main Lens Distortion Interface")
             launch_main_interface()
             
         elif args.interface == 'gdc':
-            print("🎯 Selected: GDC Grid Processing Interface")
+            print("Selected: GDC Grid Processing Interface")
             launch_gdc_utility()
             
         elif args.interface == 'integrated':
-            print("🎯 Selected: Integrated Interface")
+            print("Selected: Integrated Interface")
             success = launch_integrated_interface()
             if not success:
-                print("⚠️  Integrated interface not available, launching main interface...")
+                print("[WARNING] Integrated interface not available, launching main interface...")
                 launch_main_interface()
         
     except KeyboardInterrupt:
-        print("\n👋 Application stopped by user")
+        print("\nApplication stopped by user")
         sys.exit(0)
     except Exception as e:
-        print(f"❌ Error starting application: {e}")
-        print("\n🔧 Troubleshooting:")
+        print(f"[ERROR] Error starting application: {e}")
+        print("\nTroubleshooting:")
         print("  1. Ensure all dependencies are installed: python main.py --check")
         print("  2. Check file permissions in the application directory")
         print("  3. Verify Python version compatibility (3.8+ required)")

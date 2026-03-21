@@ -8,7 +8,7 @@
     ]
   },
   "input": {
-    "sample_pattern": "color_wheel",
+    "sample_pattern": "color_checkerboard",
     "width": 640,
     "height": 480
   },

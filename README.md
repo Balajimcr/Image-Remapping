@@ -2,6 +2,8 @@
 
 A computer vision research tool for evaluating grid-based image remapping pipelines with geometric transform composition.
 
+![alt text](<GUI App-1.jpg>)
+
 ## Problem Statement
 
 Modern image processing pipelines frequently apply geometric distortions (e.g., barrel, swirl, wave) using dense per-pixel mappings via `cv2.remap`. In many practical workflows, additional geometric transforms such as flips and rotations are applied after remapping as separate post-processing steps.

@@ -2027,7 +2027,7 @@ class RemapGUI(tk.Tk):
             Must be one of {0, 90, 180, 270}.  Any other value raises ValueError
             immediately rather than silently producing a no-op.
         """
-        # Bug 3 fix: guard against invalid rotate values before any work is done.
+        # Validate rotate before applying any post-processing.
         if rotate not in (0, 90, 180, 270):
             raise ValueError(
                 f"Unsupported rotation {rotate!r}. Must be one of 0, 90, 180, 270."
@@ -2083,7 +2083,7 @@ class RemapGUI(tk.Tk):
         Rot-180:   output[r, c] = in[H−1−r, W−1−c]  → m[::-1, ::-1]
         Rot-270CW: output[r, c] = in[c, W−1−r]      → m[:, ::-1].T   shape→(W, H)
 
-        Order contract  (Bug 1 fix)
+        Order contract
         ---------------------------
         Follows _FOLD_ORDER = ("flip", "rotate") — MUST be identical to
         _run_pipeline_thread and _apply_post_process.
@@ -2105,20 +2105,20 @@ class RemapGUI(tk.Tk):
         cur_H, cur_W : int
             Output dimensions — equal to (W, H) for 90°/270°, (H, W) otherwise.
         """
-        # Bug 3 fix — validate rotate before any work is done.
+        # Validate rotate before any folding work is done.
         if rotate not in (0, 90, 180, 270):
             raise ValueError(
                 f"Unsupported rotation {rotate!r}. Must be one of 0, 90, 180, 270."
             )
 
-        # Bug 4 fix — no eager copy.  All flip ops below create numpy views
+        # Avoid eager copies. All flip ops below create numpy views
         # (reversed strides), not copies.  The first op that requires a
         # contiguous layout (rotation via np.ascontiguousarray) materialises
         # a new array only when actually needed.
         m_x = map_x
         m_y = map_y
 
-        # Bug 2 fix — track current dimensions explicitly through each stage.
+        # Track current dimensions explicitly through each stage.
         # Flips are dimension-preserving; rotations swap H and W.  Using
         # cur_H / cur_W (rather than bare H / W) makes each fold operation
         # self-contained: if the order were ever extended, each stage would
@@ -2159,7 +2159,7 @@ class RemapGUI(tk.Tk):
             cur_H, cur_W = cur_W, cur_H                  # dimensions swap
         # rotate == 0: identity, no fold needed.
 
-        # Bug 5 fix — map_x / map_y are guaranteed float32 by build_remap_maps.
+        # map_x / map_y are guaranteed float32 by build_remap_maps.
         # np.ascontiguousarray preserves dtype and is a no-op when the array is
         # already C-contiguous float32.  An explicit .astype(float32) would create
         # a redundant copy; we avoid it.

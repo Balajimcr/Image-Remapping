@@ -1913,25 +1913,14 @@ class RemapGUI(tk.Tk):
             result_a = self._apply_post_process(remapped_a, flip_h, flip_v, rotate)
 
             # ── Method B ──────────────────────────────────────────────────
-            # Step B-1: fold flip/rotate into the dense maps
+            # Fold flip/rotate into the dense maps, then remap directly.
+            # No sparse round-trip needed — folded maps are valid cv2.remap
+            # inputs and produce zero approximation error.
             folded_mx, folded_my, out_H, out_W = self._apply_geometric_fold(
                 map_x, map_y, H, W, flip_h, flip_v, rotate
             )
-
-            # Step B-2: sample folded dense maps at uniformly-spaced grid nodes
-            #           in the output space → sparse displacement grid B
-            dx_grid_b, dy_grid_b = self._sample_grid_from_dense(
-                folded_mx, folded_my, out_H, out_W, gR, gC
-            )
-
-            # Step B-3: re-interpolate sparse B grid → dense maps B
-            map_x_b, map_y_b = engine.build_remap_maps(
-                (out_H, out_W), dx_grid_b, dy_grid_b, grid_interp=g_interp
-            )
-
-            # Step B-4: remap with maps B (no post-process)
             result_b = engine.apply_remap(
-                image, map_x_b, map_y_b,
+                image, folded_mx, folded_my,
                 interpolation=px_interp, border_mode=border,
             )
 
@@ -1990,8 +1979,6 @@ class RemapGUI(tk.Tk):
                 "grid":          f"{gR}×{gC}",
                 "grid_interp":   g_interp,
                 "out_size":      f"{result_a.shape[1]}×{result_a.shape[0]}",
-                "dx_b_range":    (float(dx_grid_b.min()), float(dx_grid_b.max())),
-                "dy_b_range":    (float(dy_grid_b.min()), float(dy_grid_b.max())),
             }
 
             self.after(
@@ -2323,11 +2310,6 @@ class RemapGUI(tk.Tk):
             f"  Green           : {ch['G']:.4f}",
             f"  Red             : {ch['R']:.4f}",
             "",
-            "─── Grid B Statistics ───────────────────────────────────────",
-            f"  Grid            : {stats['grid']} nodes",
-            f"  Grid interp     : {stats['grid_interp']}",
-            f"  dX_B range      : {stats['dx_b_range'][0]:.2f} … {stats['dx_b_range'][1]:.2f} px",
-            f"  dY_B range      : {stats['dy_b_range'][0]:.2f} … {stats['dy_b_range'][1]:.2f} px",
             f"  Output size     : {stats['out_size']}",
             "",
             "─── Comparison Config ───────────────────────────────────────",

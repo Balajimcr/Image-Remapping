@@ -13,7 +13,7 @@
     "height": 480
   },
   "transform": {
-    "type": "barrel",
+    "type": "swirl",
     "available_transforms": [
       "barrel",
       "pincushion",

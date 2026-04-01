@@ -299,6 +299,12 @@ class RemapGUI(tk.Tk):
         self._cmp_timer: Optional[str] = None             # comparison debounce timer
         self._live_timer: Optional[str] = None           # after() handle
 
+        # Sparse vs Dense tab state
+        self._spd_result_dense:  Optional[np.ndarray] = None
+        self._spd_result_sparse: Optional[np.ndarray] = None
+        self._spd_diff:          Optional[np.ndarray] = None
+        self._spd_timer:         Optional[str] = None
+
         # --- Load defaults from JSON ----------------------------------------
         self._defaults = self._load_defaults_from_json()
 
@@ -843,6 +849,11 @@ class RemapGUI(tk.Tk):
         self._notebook.add(tab_cmp, text="  Comparison  ")
         self._build_comparison_tab(tab_cmp)
 
+        # Tab 6: Sparse vs Dense — naive upsample vs bicubic spline reconstruction
+        tab_spd = ttk.Frame(self._notebook)
+        self._notebook.add(tab_spd, text="  Sparse vs Dense  ")
+        self._build_sparse_vs_dense_tab(tab_spd)
+
         # Bind tab change to auto-run comparison when tab is selected
         self._notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
@@ -980,6 +991,14 @@ class RemapGUI(tk.Tk):
         self._canvas_dx._canvas.config(bg=canvas_bg)
         self._canvas_dy._canvas.config(bg=canvas_bg)
         self._canvas_mag._canvas.config(bg=canvas_bg)
+        # Comparison tab canvases
+        self._canvas_cmp_a._canvas.config(bg=canvas_bg)
+        self._canvas_cmp_b._canvas.config(bg=canvas_bg)
+        self._canvas_diff._canvas.config(bg=canvas_bg)
+        # Sparse vs Dense tab canvases
+        self._canvas_spd_dense._canvas.config(bg=canvas_bg)
+        self._canvas_spd_sparse._canvas.config(bg=canvas_bg)
+        self._canvas_spd_diff._canvas.config(bg=canvas_bg)
 
         # Update status label
         self._set_status(f"Theme switched to {new_theme}", OK)
@@ -1110,11 +1129,13 @@ class RemapGUI(tk.Tk):
     def _on_flip_rotate_changed(self, _=None):
         """Called when flip or rotate parameters change."""
         self._schedule_live()
-        # Also schedule comparison update if on comparison tab
+        # Also schedule the active diagnostic tab if it depends on flip/rotate.
         current_tab = self._notebook.select()
         tab_text = self._notebook.tab(current_tab, "text")
         if "Comparison" in tab_text:
             self._schedule_comparison()
+        elif "Sparse vs Dense" in tab_text:
+            self._schedule_spd_comparison()
 
     def _reset_roi(self):
         """Reset ROI to default values."""
@@ -1137,6 +1158,13 @@ class RemapGUI(tk.Tk):
             self.after_cancel(self._live_timer)
         if self._live_var.get():
             self._live_timer = self.after(300, self._apply)
+        # Re-run active diagnostic tab when any pipeline parameter changes.
+        current_tab = self._notebook.select()
+        tab_text = self._notebook.tab(current_tab, "text")
+        if "Comparison" in tab_text:
+            self._schedule_comparison()
+        elif "Sparse vs Dense" in tab_text:
+            self._schedule_spd_comparison()
 
     # ======================================================================
     # Image loading
@@ -1788,6 +1816,8 @@ class RemapGUI(tk.Tk):
         tab_text = self._notebook.tab(current_tab, "text")
         if "Comparison" in tab_text:
             self._schedule_comparison()
+        elif "Sparse vs Dense" in tab_text:
+            self._schedule_spd_comparison()
 
     def _schedule_comparison(self):
         """Schedule comparison to run (debounced)."""
@@ -2327,6 +2357,432 @@ class RemapGUI(tk.Tk):
         self._cmp_stats_text.delete("1.0", tk.END)
         self._cmp_stats_text.insert(tk.END, text)
         self._cmp_stats_text.config(state=tk.DISABLED)
+
+
+    # ======================================================================
+    # Sparse vs Dense Tab — naive upsample vs bicubic spline reconstruction
+    # ======================================================================
+
+    def _build_sparse_vs_dense_tab(self, parent: ttk.Frame):
+        """
+        Tab layout — mirrors the Comparison tab structure.
+        ──────────────────────────────────────────────────
+        Row 0 : Controls strip  (diff-amp slider, colormap picker)
+        Row 1 : Theory note banner
+        Row 2 : Three ImageCanvases — Method B | Method C | Residual B-C
+        Row 3 : Statistics text
+        """
+        parent.rowconfigure(2, weight=1)
+        parent.columnconfigure(0, weight=1)
+
+        # ── Row 0: Controls ──────────────────────────────────────────────
+        ctrl = ttk.Frame(parent)
+        ctrl.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 2))
+
+        self._spd_auto_lbl = ttk.Label(
+            ctrl, text="● Auto-run", font=FONT_BODY, foreground=OK
+        )
+        self._spd_auto_lbl.pack(side=tk.LEFT, padx=(0, 12))
+
+        ttk.Label(ctrl, text="Diff amp ×", font=FONT_BODY).pack(side=tk.LEFT)
+        self._spd_amp_var = tk.DoubleVar(value=5.0)
+        ttk.Scale(
+            ctrl, orient=tk.HORIZONTAL, from_=1.0, to=30.0,
+            variable=self._spd_amp_var, length=120,
+            command=lambda _: self._refresh_spd_diff_display(),
+        ).pack(side=tk.LEFT, padx=4)
+        self._spd_amp_lbl = ttk.Label(ctrl, text="5.0", width=4, font=FONT_MONO)
+        self._spd_amp_lbl.pack(side=tk.LEFT, padx=(0, 12))
+
+        ttk.Label(ctrl, text="Colormap", font=FONT_BODY).pack(side=tk.LEFT)
+        self._spd_cmap_var = tk.StringVar(value="hot")
+        cmap_cb = ttk.Combobox(
+            ctrl, textvariable=self._spd_cmap_var,
+            values=["hot", "jet", "plasma", "inferno", "gray"],
+            state="readonly", width=9,
+        )
+        cmap_cb.pack(side=tk.LEFT, padx=4)
+        cmap_cb.bind(
+            "<<ComboboxSelected>>",
+            lambda _: self._refresh_spd_diff_display(),
+        )
+
+        # ── Row 1: Theory note ────────────────────────────────────────────
+        note_frame = ttk.Frame(parent)
+        note_frame.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 4))
+
+        note_text = (
+            "Method B — Dense Folded (reference): dense maps → fold flip/rotate "
+            "via array index ops → single cv2.remap.  Zero approximation error.  "
+            "Method C — Sparse Direct: apply the identical array ops to the raw "
+            "sparse (gR×gC) displacement grid → build_remap_maps → cv2.remap.  "
+            "Residual exposes the interpolation error from bypassing the dense round-trip.  "
+            "For Flip-H/V on a linear field the error is near-zero; "
+            "for 90°/270° rotation or non-linear distortions the error grows."
+        )
+        ttk.Label(
+            note_frame, text=note_text,
+            font=("Segoe UI", 8, "italic"),
+            foreground=FG2, wraplength=900, anchor="w",
+        ).pack(fill=tk.X)
+
+        # ── Row 2: Three image canvases ───────────────────────────────────
+        img_frame = ttk.Frame(parent)
+        img_frame.grid(row=2, column=0, sticky="nsew", padx=6, pady=2)
+        img_frame.columnconfigure(0, weight=1)
+        img_frame.columnconfigure(1, weight=1)
+        img_frame.columnconfigure(2, weight=1)
+        img_frame.rowconfigure(0, weight=1)
+
+        self._canvas_spd_dense = ImageCanvas(
+            img_frame,
+            "Method B — Dense Folded\n(array ops on dense maps → cv2.remap)",
+        )
+        self._canvas_spd_dense.grid(
+            row=0, column=0, sticky="nsew", padx=(0, 2), pady=2
+        )
+
+        self._canvas_spd_sparse = ImageCanvas(
+            img_frame,
+            "Method C — Sparse Direct\n(array ops on sparse grid → build_remap_maps → cv2.remap)",
+        )
+        self._canvas_spd_sparse.grid(
+            row=0, column=1, sticky="nsew", padx=2, pady=2
+        )
+
+        self._canvas_spd_diff = ImageCanvas(
+            img_frame,
+            "Residual  |B − C|  (amplified)",
+        )
+        self._canvas_spd_diff.grid(
+            row=0, column=2, sticky="nsew", padx=(2, 0), pady=2
+        )
+
+        # ── Row 3: Statistics ─────────────────────────────────────────────
+        stats_outer = ttk.LabelFrame(parent, text="  Sparse vs Dense Statistics  ")
+        stats_outer.grid(row=3, column=0, sticky="ew", padx=6, pady=(2, 6))
+
+        self._spd_stats_text = tk.Text(
+            stats_outer,
+            bg="#0d0d1a", fg=FG, font=FONT_MONO,
+            relief=tk.FLAT, state=tk.DISABLED,
+            height=8, wrap=tk.NONE,
+            selectbackground=SELECT_BG, selectforeground=SELECT_FG,
+        )
+        sb = ttk.Scrollbar(stats_outer, command=self._spd_stats_text.yview)
+        self._spd_stats_text.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._spd_stats_text.pack(fill=tk.X, padx=4, pady=4)
+
+    # ------------------------------------------------------------------
+    # Sparse vs Dense — trigger / scheduler
+    # ------------------------------------------------------------------
+    def _schedule_spd_comparison(self):
+        """Debounced trigger — cancels any pending run and schedules a new one."""
+        if self._spd_timer:
+            self.after_cancel(self._spd_timer)
+        self._spd_timer = self.after(300, self._run_spd_comparison)
+
+    def _run_spd_comparison(self):
+        """Validate state, then run Sparse vs Dense comparison in background."""
+        if self._processing:
+            self._set_status("Main pipeline is running — wait and retry.", WARN)
+            return
+        if self._source_bgr is None:
+            self._set_status("Load an image first.", WARN)
+            return
+        if self._dx_grid is None or self._dy_grid is None:
+            self._set_status("Run 'Apply Remap' first to generate the grid.", WARN)
+            return
+
+        params = {
+            "grid_rows":      self._grid_rows_var.get(),
+            "grid_cols":      self._grid_cols_var.get(),
+            "grid_interp":    self._grid_interp_var.get(),
+            "interp":         self._interp_var.get(),
+            "border":         self._border_var.get(),
+            "flip_h":         self._flip_h_var.get(),
+            "flip_v":         self._flip_v_var.get(),
+            "rotate":         self._rotate_var.get(),
+        }
+
+        self._start_progress()
+        self._set_status("Running Sparse vs Dense comparison …", ACCENT)
+
+        threading.Thread(
+            target=self._run_spd_thread,
+            args=(
+                self._source_bgr.copy(),
+                self._dx_grid.copy(),
+                self._dy_grid.copy(),
+                params,
+            ),
+            daemon=True,
+        ).start()
+
+    # ------------------------------------------------------------------
+    # Sparse vs Dense — background worker
+    # ------------------------------------------------------------------
+    def _run_spd_thread(
+        self,
+        image: np.ndarray,
+        dx_grid: np.ndarray,
+        dy_grid: np.ndarray,
+        params: dict,
+    ):
+        """
+        Method B — Dense Folded (reference)
+        ─────────────────────────────────────
+          sparse dx/dy → build_remap_maps (bicubic spline) → dense maps
+          → _apply_geometric_fold (array index ops on H×W arrays)
+          → single cv2.remap
+          Zero approximation error by construction.
+
+        Method C — Sparse Direct
+        ─────────────────────────
+          Apply the IDENTICAL array index ops as _apply_geometric_fold
+          but on the raw (gR×gC) sparse displacement grid.
+          → build_remap_maps on transformed sparse grid
+          → cv2.remap
+
+        Key insight: _apply_geometric_fold on the dense map reindexes
+        every pixel correctly.  The same ops on the sparse grid reindex
+        knot VALUES but the knot POSITIONS stay at linspace(0,N-1,K).
+        For 90°/270° the grid shape also changes (gR×gC → gC×gR), so
+        build_remap_maps places knots over a different pixel range,
+        causing systematic error that grows with distortion curvature.
+        """
+        try:
+            H, W      = image.shape[:2]
+            g_interp  = params["grid_interp"]
+            px_interp = params["interp"]
+            border    = params["border"]
+            flip_h    = params["flip_h"]
+            flip_v    = params["flip_v"]
+            rotate    = params["rotate"]
+            gR, gC    = dx_grid.shape
+
+            engine = GridRemapEngine()
+            t0 = time.perf_counter()
+
+            # ── Method B — Dense Folded (reference) ───────────────────────
+            map_x, map_y = engine.build_remap_maps(
+                (H, W), dx_grid, dy_grid, grid_interp=g_interp
+            )
+            folded_mx, folded_my, out_H_b, out_W_b = self._apply_geometric_fold(
+                map_x, map_y, H, W, flip_h, flip_v, rotate
+            )
+            result_b = engine.apply_remap(
+                image, folded_mx, folded_my,
+                interpolation=px_interp, border_mode=border,
+            )
+
+            # ── Method C — Sparse Direct ───────────────────────────────────
+            # Apply identical array ops as _apply_geometric_fold, but on
+            # the (gR × gC) sparse grid instead of the (H × W) dense map.
+            dx_c = dx_grid.copy()
+            dy_c = dy_grid.copy()
+            out_gR, out_gC = gR, gC
+            out_H_c, out_W_c = H, W
+
+            # Step 1: fold flips (dimension-preserving).
+            if flip_h and flip_v:
+                dx_c = dx_c[::-1, ::-1]
+                dy_c = dy_c[::-1, ::-1]
+            elif flip_h:
+                dx_c = dx_c[:, ::-1]
+                dy_c = dy_c[:, ::-1]
+            elif flip_v:
+                dx_c = dx_c[::-1, :]
+                dy_c = dy_c[::-1, :]
+
+            # Step 2: fold rotation (swaps gR↔gC for 90°/270°).
+            if rotate == 90:
+                dx_c = np.ascontiguousarray(dx_c[::-1, :].T)
+                dy_c = np.ascontiguousarray(dy_c[::-1, :].T)
+                out_gR, out_gC = gC, gR
+                out_H_c, out_W_c = W, H
+            elif rotate == 180:
+                dx_c = np.ascontiguousarray(dx_c[::-1, ::-1])
+                dy_c = np.ascontiguousarray(dy_c[::-1, ::-1])
+            elif rotate == 270:
+                dx_c = np.ascontiguousarray(dx_c[:, ::-1].T)
+                dy_c = np.ascontiguousarray(dy_c[:, ::-1].T)
+                out_gR, out_gC = gC, gR
+                out_H_c, out_W_c = W, H
+
+            map_x_c, map_y_c = engine.build_remap_maps(
+                (out_H_c, out_W_c),
+                np.ascontiguousarray(dx_c).astype(np.float32),
+                np.ascontiguousarray(dy_c).astype(np.float32),
+                grid_interp=g_interp,
+            )
+            result_c = engine.apply_remap(
+                image, map_x_c, map_y_c,
+                interpolation=px_interp, border_mode=border,
+            )
+
+            t1 = time.perf_counter()
+
+            # ── Align shapes for diff (rotation swaps H↔W) ───────────────
+            if result_c.shape[:2] != result_b.shape[:2]:
+                result_c = cv2.resize(
+                    result_c,
+                    (result_b.shape[1], result_b.shape[0]),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+
+            # ── Residual and statistics ───────────────────────────────────
+            diff_f   = result_b.astype(np.float32) - result_c.astype(np.float32)
+            abs_diff = np.abs(diff_f)
+
+            rmse     = float(np.sqrt(np.mean(diff_f ** 2)))
+            max_err  = float(abs_diff.max())
+            mean_err = float(abs_diff.mean())
+            psnr     = (
+                float(20 * np.log10(255.0 / rmse)) if rmse > 1e-9 else float("inf")
+            )
+            identical_pct = float(
+                np.sum(abs_diff.max(axis=2) == 0)
+                / (result_b.shape[0] * result_b.shape[1]) * 100
+            )
+
+            ch_rmse: dict[str, float] = {}
+            for idx, ch_name in enumerate(["B", "G", "R"]):
+                ch_rmse[ch_name] = float(
+                    np.sqrt(np.mean(diff_f[:, :, idx] ** 2))
+                )
+
+            folds = []
+            if flip_h:
+                folds.append("Flip-H")
+            if flip_v:
+                folds.append("Flip-V")
+            if rotate:
+                folds.append(f"Rotate {rotate}°")
+
+            stats = {
+                "rmse":          rmse,
+                "max_err":       max_err,
+                "mean_err":      mean_err,
+                "psnr_db":       psnr,
+                "identical_pct": identical_pct,
+                "ch_rmse":       ch_rmse,
+                "elapsed_ms":    (t1 - t0) * 1000,
+                "folds":         folds if folds else ["(none — identity)"],
+                "grid":          f"{gR}×{gC}",
+                "grid_c":        f"{out_gR}×{out_gC}",
+                "grid_interp":   g_interp,
+                "out_size_b":    f"{result_b.shape[1]}×{result_b.shape[0]}",
+                "out_size_c":    f"{out_W_c}×{out_H_c}",
+            }
+
+            self.after(
+                0, self._on_spd_done,
+                result_b, result_c, diff_f, stats,
+            )
+
+        except Exception as exc:
+            self.after(0, self._on_pipeline_error, f"Sparse vs Dense: {exc}")
+
+    # ------------------------------------------------------------------
+    # Sparse vs Dense — receive results on main thread
+    # ------------------------------------------------------------------
+    def _on_spd_done(
+        self,
+        result_b: np.ndarray,
+        result_c: np.ndarray,
+        diff_f: np.ndarray,
+        stats: dict,
+    ):
+        self._spd_result_dense  = result_b
+        self._spd_result_sparse = result_c
+        self._spd_diff          = diff_f
+
+        self._canvas_spd_dense.show(result_b)
+        self._canvas_spd_sparse.show(result_c)
+        self._refresh_spd_diff_display()
+        self._update_spd_stats(stats)
+
+        self._set_status(
+            f"Sparse vs Dense — RMSE: {stats['rmse']:.3f}  "
+            f"Max err: {stats['max_err']:.1f}  "
+            f"PSNR: {stats['psnr_db']:.1f} dB  "
+            f"Identical px: {stats['identical_pct']:.1f}%  "
+            f"({stats['elapsed_ms']:.0f} ms)",
+            OK,
+        )
+        self._stop_progress()
+
+    def _refresh_spd_diff_display(self):
+        """Re-render the Sparse vs Dense diff canvas on amp/colormap change."""
+        if self._spd_diff is None:
+            return
+
+        amp       = self._spd_amp_var.get()
+        cmap_name = self._spd_cmap_var.get()
+        self._spd_amp_lbl.config(text=f"{amp:.1f}")
+
+        _cmap_map = {
+            "hot":     cv2.COLORMAP_HOT,
+            "jet":     cv2.COLORMAP_JET,
+            "plasma":  cv2.COLORMAP_PLASMA,
+            "inferno": cv2.COLORMAP_INFERNO,
+            "gray":    cv2.COLORMAP_BONE,
+        }
+        cmap_cv = _cmap_map.get(cmap_name, cv2.COLORMAP_HOT)
+
+        abs_diff  = np.abs(self._spd_diff)
+        magnitude = abs_diff.max(axis=2)
+        scaled    = np.clip(magnitude * amp, 0, 255).astype(np.uint8)
+        self._canvas_spd_diff.show(cv2.applyColorMap(scaled, cmap_cv))
+
+    def _update_spd_stats(self, stats: dict):
+        """Write Sparse vs Dense statistics into the stats text widget."""
+        psnr_str = (
+            f"{stats['psnr_db']:.2f} dB"
+            if stats["psnr_db"] != float("inf")
+            else "∞  (identical — sparse direct matches dense fold)"
+        )
+        ch = stats["ch_rmse"]
+        folds_str = ", ".join(stats["folds"])
+
+        lines = [
+            "─── Overall Error  |Method B − Method C| ────────────────────",
+            f"  RMSE            : {stats['rmse']:.4f} px",
+            f"  Max error       : {stats['max_err']:.2f} px",
+            f"  Mean error      : {stats['mean_err']:.4f} px",
+            f"  PSNR            : {psnr_str}",
+            f"  Identical px    : {stats['identical_pct']:.2f} %",
+            "",
+            "─── Per-Channel RMSE ────────────────────────────────────────",
+            f"  Blue            : {ch['B']:.4f}",
+            f"  Green           : {ch['G']:.4f}",
+            f"  Red             : {ch['R']:.4f}",
+            "",
+            "─── Config ──────────────────────────────────────────────────",
+            f"  Transforms      : {folds_str}",
+            f"  Input grid      : {stats['grid']} nodes",
+            f"  Method C grid   : {stats['grid_c']} nodes  (shape after fold)",
+            f"  Spline interp   : {stats['grid_interp']}",
+            f"  Method B output : {stats['out_size_b']}",
+            f"  Method C output : {stats['out_size_c']}",
+            f"  Elapsed         : {stats['elapsed_ms']:.1f} ms",
+            "",
+            "─── Interpretation ──────────────────────────────────────────",
+            "  RMSE ≈ 0  →  sparse direct matches dense fold",
+            "             (linear fields, Flip-H/V with matching grid density)",
+            "  RMSE > 0  →  knot values reindexed correctly but positions",
+            "             remain at original linspace — spline reconstructs",
+            "             wrong field, especially at 90°/270° rotation",
+            "  Higher grid density  →  less inter-knot curvature, lower error",
+        ]
+
+        text = "\n".join(lines)
+        self._spd_stats_text.config(state=tk.NORMAL)
+        self._spd_stats_text.delete("1.0", tk.END)
+        self._spd_stats_text.insert(tk.END, text)
+        self._spd_stats_text.config(state=tk.DISABLED)
 
 
 # ---------------------------------------------------------------------------

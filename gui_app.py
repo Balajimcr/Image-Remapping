@@ -1477,11 +1477,13 @@ class RemapGUI(tk.Tk):
         self._set_status(msg, OK)
         self._stop_progress()
 
-        # Auto-trigger comparison if comparison tab is visible
+        # Auto-trigger comparison/sparse-vs-dense if those tabs are visible
         current_tab = self._notebook.select()
         tab_text = self._notebook.tab(current_tab, "text")
         if "Comparison" in tab_text:
             self._schedule_comparison()
+        elif "Sparse vs Dense" in tab_text:
+            self._schedule_spd_comparison()
 
     def _on_pipeline_error(self, msg: str):
         self._set_status(f"Error: {msg}", ERR)
